@@ -41,6 +41,7 @@ export class Enemy extends Entity {
   private maneuverY = 0;
   private justCollidedLeft = false;
   private justCollidedRight = false;
+  private touchCooldown = 0;
 
   ctx!: EnemyContext;
 
@@ -58,6 +59,7 @@ export class Enemy extends Entity {
     if (!this.ctx) return;
 
     this.gun.tick();
+    if (this.touchCooldown > 0) this.touchCooldown--;
 
     const bullets = this.gun.fire(
       this.middle.x, this.middle.y,
@@ -82,7 +84,10 @@ export class Enemy extends Entity {
 
     for (const t of this.ctx.getPlayerTarget()) {
       if (testAABB(this.x, this.y, this.width, this.height, t.rect)) {
-        this.ctx.onTouchPlayer();
+        if (this.touchCooldown === 0) {
+          this.touchCooldown = 60; // 1 second between touch hits
+          this.ctx.onTouchPlayer();
+        }
         return;
       }
     }

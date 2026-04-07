@@ -46,9 +46,7 @@ export default function GameCanvas() {
   }, []);
 
   const handleResume = useCallback(() => {
-    // Trigger pause toggle by simulating Escape — game manages its own pause state.
-    // We dispatch a keydown event so InputManager's Escape handler fires.
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    gameRef.current?.resume();
   }, []);
 
   return (

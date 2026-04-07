@@ -38,7 +38,7 @@ export class Bullet extends Rectangle {
 
     const dx = targetX - (x + width / 2);
     const dy = targetY - (y + height / 2);
-    const dist = Math.abs(dx) + Math.abs(dy);
+    const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist > 0) {
       this.vx = (dx / dist) * speed;
       this.vy = (dy / dist) * speed;

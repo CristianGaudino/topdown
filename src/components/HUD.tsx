@@ -52,16 +52,16 @@ function DashIndicator({ cooldownFraction }: { cooldownFraction: number }) {
       <span className="text-white text-xs font-mono w-6">DSH</span>
       <div className="relative w-36 h-3 bg-gray-800 rounded overflow-hidden border border-gray-600">
         <div
-          className="h-full rounded transition-all duration-75"
+          className="h-full rounded"
           style={{
             width: `${readiness * 100}%`,
-            backgroundColor: ready ? '#8b5cf6' : '#4c1d95',
+            backgroundColor: ready ? '#8b5cf6' : '#6b7280',
           }}
         />
       </div>
       <span
         className="text-xs font-mono w-14"
-        style={{ color: ready ? '#c4b5fd' : '#6d28d9' }}
+        style={{ color: ready ? '#c4b5fd' : '#9ca3af' }}
       >
         {ready ? 'READY' : '...'}
       </span>

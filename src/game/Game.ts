@@ -39,6 +39,8 @@ export class Game {
   private status: GameStatus = 'playing';
   private onStateChange: (state: GameState) => void;
   private stats: RunStats = { kills: 0, damageTaken: 0, healthPickedUp: 0, gunsPickedUp: 0 };
+  private shakeIntensity = 0;
+  private shakeDuration = 0;
 
   constructor(canvas: HTMLCanvasElement, onStateChange: (state: GameState) => void) {
     this.canvas = canvas;
@@ -94,6 +96,13 @@ export class Game {
 
     this.loop = new GameLoop(() => this.tick());
     this.loop.start();
+  }
+
+  resume() {
+    if (this.status === 'paused') {
+      this.status = 'playing';
+      this.emitState();
+    }
   }
 
   private togglePause() {
@@ -188,6 +197,9 @@ export class Game {
   private handlePlayerDamaged(dmg: number, x: number, y: number) {
     this.stats.damageTaken += dmg;
     this.map.currentRoom.spawnDamageNumber(x, y, dmg, false);
+    // Shake intensity scales with damage — boss touch hits harder
+    this.shakeIntensity = Math.min(10, 3 + dmg * 0.15);
+    this.shakeDuration = Math.round(8 + dmg * 0.2);
   }
 
   private handlePlayerDied() {
@@ -217,8 +229,21 @@ export class Game {
     const ctx = this.ctx;
     const room = this.map.currentRoom;
 
+    // Screen shake
+    let shakeX = 0;
+    let shakeY = 0;
+    if (this.shakeDuration > 0) {
+      shakeX = (Math.random() - 0.5) * this.shakeIntensity * 2;
+      shakeY = (Math.random() - 0.5) * this.shakeIntensity * 2;
+      this.shakeDuration--;
+      this.shakeIntensity *= 0.88;
+    }
+
+    ctx.save();
+    ctx.translate(shakeX, shakeY);
+
     ctx.fillStyle = '#0e7c6b';
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.fillRect(-10, -10, this.canvas.width + 20, this.canvas.height + 20); // slightly oversized to cover shake edges
 
     room.draw(ctx);
     this.hero.draw(ctx);
@@ -238,6 +263,8 @@ export class Game {
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     }
+
+    ctx.restore(); // end shake transform
   }
 
   private emitState() {

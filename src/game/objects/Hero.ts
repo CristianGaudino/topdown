@@ -19,6 +19,7 @@ export class Hero extends Entity {
   dashCooldown = 0;
   private dashVx = 0;
   private dashVy = 0;
+  private aimAngle = 0; // radians, hero faces this direction
 
   // Injected per-frame by Game
   getStatics!: () => Rect[];
@@ -55,6 +56,9 @@ export class Hero extends Entity {
     dash: boolean; mouseX: number; mouseY: number; mouseDown: boolean;
   }) {
     this.gun.tick();
+
+    // Track aim direction for drawing
+    this.aimAngle = Math.atan2(input.mouseY - this.middle.y, input.mouseX - this.middle.x);
 
     // Dash trigger
     if (input.dash && this.dashCooldown === 0 && this.dashTimer === 0) {
@@ -109,21 +113,42 @@ export class Hero extends Entity {
   }
 
   draw(ctx: CanvasRenderingContext2D) {
+    const cx = this.middle.x;
+    const cy = this.middle.y;
+    const hw = this.width / 2;
+    const hh = this.height / 2;
+
     // Dash afterimage
     if (this.dashTimer > 0) {
       ctx.save();
-      ctx.globalAlpha = this.dashTimer / DASH_DURATION * 0.4;
+      ctx.globalAlpha = (this.dashTimer / DASH_DURATION) * 0.35;
       ctx.fillStyle = '#c39bd3';
-      ctx.fillRect(this.x - this.dashVx, this.y - this.dashVy, this.width, this.height);
+      ctx.translate(cx - this.dashVx * 1.5, cy - this.dashVy * 1.5);
+      ctx.rotate(this.aimAngle);
+      ctx.fillRect(-hw, -hh, this.width, this.height);
       ctx.restore();
     }
 
-    super.draw(ctx);
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(this.aimAngle);
+
+    // Body
+    const flashing = this.damageFlashTimer > 0;
+    if (flashing) this.damageFlashTimer--;
+    ctx.fillStyle = flashing ? '#e74c3c' : this.color;
+    ctx.fillRect(-hw, -hh, this.width, this.height);
+
+    // Gun barrel — small rectangle pointing right (forward)
+    ctx.fillStyle = flashing ? '#ff8888' : 'rgba(255,255,255,0.75)';
+    ctx.fillRect(hw - 2, -3, 10, 6);
 
     // Centre dot
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
     ctx.beginPath();
-    ctx.arc(this.middle.x, this.middle.y, 4, 0, Math.PI * 2);
+    ctx.arc(0, 0, 3, 0, Math.PI * 2);
     ctx.fill();
+
+    ctx.restore();
   }
 }

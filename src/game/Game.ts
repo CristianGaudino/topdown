@@ -43,6 +43,7 @@ export class Game {
   private stats: RunStats = { kills: 0, damageTaken: 0, healthPickedUp: 0, gunsPickedUp: 0, shotsFired: 0, shotsHit: 0 };
   private shakeIntensity = 0;
   private shakeDuration = 0;
+  private flashTimer = 0;
 
   constructor(canvas: HTMLCanvasElement, onStateChange: (state: GameState) => void) {
     this.canvas = canvas;
@@ -60,6 +61,7 @@ export class Game {
     this.hero = new Hero(80, canvas.height / 2 - 14);
     this.wireHeroToRoom();
     this.map.currentRoom.heroPresent = this.hero;
+    this.map.currentRoom.visited = true;
 
     this.input = new InputManager(canvas);
     this.input.setPauseCallback(() => this.togglePause());
@@ -92,6 +94,8 @@ export class Game {
     this.hero = new Hero(80, this.canvas.height / 2 - 14);
     this.wireHeroToRoom();
     this.map.currentRoom.heroPresent = this.hero;
+    this.map.currentRoom.visited = true;
+    this.flashTimer = 0;
 
     this.input = new InputManager(this.canvas);
     this.input.setPauseCallback(() => this.togglePause());
@@ -183,6 +187,8 @@ export class Game {
       h.x = newX;
       h.y = newY;
       nextRoom.heroPresent = h;
+      nextRoom.visited = true;
+      this.flashTimer = 10;
       this.wireHeroToRoom();
     }
   }
@@ -267,6 +273,13 @@ export class Game {
       ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     }
 
+    // Room transition flash
+    if (this.flashTimer > 0) {
+      ctx.fillStyle = `rgba(255,255,255,${(this.flashTimer / 10) * 0.45})`;
+      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      this.flashTimer--;
+    }
+
     ctx.restore(); // end shake transform
   }
 
@@ -281,12 +294,14 @@ export class Game {
       status: this.status,
       currentRoomRow: cr.row,
       currentRoomCol: cr.col,
-      mapRooms: rooms.map(({ room, row, col }) => ({
-        row,
-        col,
-        isCurrent: room === cr,
-        hasEnemies: room.enemyCount > 0,
-      })),
+      mapRooms: rooms
+        .filter(({ room }) => room.visited)
+        .map(({ room, row, col }) => ({
+          row,
+          col,
+          isCurrent: room === cr,
+          hasEnemies: room.enemyCount > 0,
+        })),
       dashCooldownFraction: this.hero.dashCooldownFraction,
       stats: { ...this.stats },
     });

@@ -49,6 +49,7 @@ export class Room {
   damageNumbers: DamageNumber[] = [];
   heroPresent: Hero | null = null;
   locked = false;
+  visited = false;
 
   private doorMats: Rectangle[];
   private cw: number;

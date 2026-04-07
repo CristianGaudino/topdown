@@ -94,7 +94,7 @@ export class Enemy extends Entity {
 
     const dx = destX - this.middle.x;
     const dy = destY - this.middle.y;
-    const total = Math.abs(dx) + Math.abs(dy) || 1;
+    const total = Math.sqrt(dx * dx + dy * dy) || 1;
     const vx = (dx / total) * speed;
     const vy = (dy / total) * speed;
 

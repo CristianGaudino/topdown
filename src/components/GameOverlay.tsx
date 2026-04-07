@@ -76,7 +76,9 @@ function PauseMenu({ stats, heroGun, heroHealth, heroMaxHealth, onResume, onRest
 
 function EndScreen({ status, stats, onRestart }: { status: 'won' | 'lost'; stats: RunStats; onRestart: () => void }) {
   const won = status === 'won';
-  const score = stats.kills * 100 + (won ? 500 : 0);
+  const accuracy = stats.shotsFired === 0 ? 0 : stats.shotsHit / stats.shotsFired;
+  const accuracyBonus = Math.round(accuracy * 300);
+  const score = stats.kills * 100 + (won ? 500 : 0) + accuracyBonus;
 
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-black/70 backdrop-blur-sm">
@@ -105,6 +107,7 @@ function EndScreen({ status, stats, onRestart }: { status: 'won' | 'lost'; stats
           <StatRow label="Health packs" value={stats.healthPickedUp} />
           <StatRow label="Guns picked up" value={stats.gunsPickedUp} />
           {won && <StatRow label="Clear bonus" value="+500" />}
+          <StatRow label="Accuracy bonus" value={`+${accuracyBonus}`} />
         </div>
 
         <button

@@ -20,6 +20,8 @@ export class Hero extends Entity {
   private dashVx = 0;
   private dashVy = 0;
   private aimAngle = 0; // radians, hero faces this direction
+  private invincibleTimer = 0;
+  private static readonly I_FRAMES = 45;
 
   // Injected per-frame by Game
   getStatics!: () => Rect[];
@@ -30,6 +32,12 @@ export class Hero extends Entity {
   constructor(x: number, y: number) {
     super(x, y, 28, 28, '#8e44ad', MAX_HEALTH);
     this.gun = new Gun('rifle', 'player');
+  }
+
+  takeDamage(amount: number) {
+    if (this.invincibleTimer > 0) return;
+    super.takeDamage(amount);
+    this.invincibleTimer = Hero.I_FRAMES;
   }
 
   equipGun(type: GunType) {
@@ -56,6 +64,7 @@ export class Hero extends Entity {
     dash: boolean; mouseX: number; mouseY: number; mouseDown: boolean;
   }) {
     this.gun.tick();
+    if (this.invincibleTimer > 0) this.invincibleTimer--;
 
     // Track aim direction for drawing
     this.aimAngle = Math.atan2(input.mouseY - this.middle.y, input.mouseX - this.middle.x);
@@ -113,6 +122,9 @@ export class Hero extends Entity {
   }
 
   draw(ctx: CanvasRenderingContext2D) {
+    // Blink while invincible
+    if (this.invincibleTimer > 0 && Math.floor(this.invincibleTimer / 5) % 2 === 0) return;
+
     const cx = this.middle.x;
     const cy = this.middle.y;
     const hw = this.width / 2;

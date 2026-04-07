@@ -106,6 +106,7 @@ export class Room {
   private buildEnemyContext(enemy: Enemy) {
     return {
       getStatics: () => this.staticColliders,
+      getEnemies: () => this.enemies,
       getPlayerTarget: () =>
         this.heroPresent
           ? [{

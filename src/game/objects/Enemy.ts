@@ -4,7 +4,8 @@ import { Bullet } from './Bullet';
 import { Particle } from './Particle';
 import { Rect, testAABB } from '../systems/Collision';
 
-// Visual profile per gun type
+type BehaviorType = 'seeker' | 'ranger' | 'charger' | 'orbiter';
+
 interface EnemyProfile {
   width: number;
   height: number;
@@ -12,18 +13,28 @@ interface EnemyProfile {
   label: string;
   speed: number;
   maxHealth: number;
+  preferredRange: number; // ideal combat distance from hero
+  turnRate: number;       // 0–1: how quickly velocity steers. higher = more agile
+  wanderStrength: number; // 0–1: random perturbation. higher = more erratic
+  behavior: BehaviorType;
 }
 
 const PROFILES: Record<GunType, EnemyProfile> = {
-  rifle:     { width: 28, height: 28, color: '#922b21', label: 'R', speed: 1.5,  maxHealth: 50 },
-  smg:       { width: 22, height: 22, color: '#1a5e35', label: 'S', speed: 2.2,  maxHealth: 35 },
-  sniper:    { width: 18, height: 34, color: '#6e4c1e', label: 'SN', speed: 0.9, maxHealth: 40 },
-  shotgun:   { width: 36, height: 30, color: '#a93226', label: 'SH', speed: 1.2, maxHealth: 70 },
-  sprinkler: { width: 48, height: 48, color: '#d35400', label: '★', speed: 1.0,  maxHealth: 400 },
+  rifle:     { width: 28, height: 28, color: '#922b21', label: 'R',  speed: 1.5,  maxHealth: 50,  preferredRange: 200, turnRate: 0.12, wanderStrength: 0.25, behavior: 'seeker'  },
+  smg:       { width: 22, height: 22, color: '#1a5e35', label: 'S',  speed: 2.2,  maxHealth: 35,  preferredRange: 80,  turnRate: 0.22, wanderStrength: 0.50, behavior: 'charger' },
+  sniper:    { width: 18, height: 34, color: '#6e4c1e', label: 'SN', speed: 0.9,  maxHealth: 40,  preferredRange: 340, turnRate: 0.07, wanderStrength: 0.10, behavior: 'ranger'  },
+  shotgun:   { width: 36, height: 30, color: '#a93226', label: 'SH', speed: 1.3,  maxHealth: 70,  preferredRange: 110, turnRate: 0.09, wanderStrength: 0.15, behavior: 'charger' },
+  sprinkler: { width: 48, height: 48, color: '#d35400', label: '★',  speed: 1.0,  maxHealth: 400, preferredRange: 220, turnRate: 0.05, wanderStrength: 0.05, behavior: 'orbiter' },
 };
+
+// How far ahead to probe for walls
+const WALL_LOOK_AHEAD = 52;
+// Radius within which enemies push each other apart
+const SEP_RADIUS = 50;
 
 export interface EnemyContext {
   getStatics: () => Rect[];
+  getEnemies: () => Enemy[];
   getPlayerTarget: () => Array<{ rect: Rect; onHit: (dmg: number, x: number, y: number) => void }>;
   spawnBullet: (b: Bullet) => void;
   spawnParticles: (p: Particle[]) => void;
@@ -36,12 +47,13 @@ export class Enemy extends Entity {
   readonly gunType: GunType;
   readonly profile: EnemyProfile;
   private gun: Gun;
-  private maneuverTimer = 0;
-  private maneuverX = 0;
-  private maneuverY = 0;
-  private justCollidedLeft = false;
-  private justCollidedRight = false;
   private touchCooldown = 0;
+
+  // Velocity-based movement state
+  private vx = 0;
+  private vy = 0;
+  private wanderAngle = Math.random() * Math.PI * 2;
+  private orbitSign = Math.random() < 0.5 ? 1 : -1; // orbit CW or CCW
 
   ctx!: EnemyContext;
 
@@ -71,80 +83,154 @@ export class Enemy extends Entity {
     );
     bullets.forEach(b => this.ctx.spawnBullet(b));
 
-    const destX = this.maneuverTimer > 0 ? this.maneuverX : heroX;
-    const destY = this.maneuverTimer > 0 ? this.maneuverY : heroY;
-    if (this.maneuverTimer > 0) this.maneuverTimer--;
-
-    this.moveToward(destX, destY, heroX, heroY);
+    this.steer(heroX, heroY);
   }
 
-  private moveToward(destX: number, destY: number, heroX: number, heroY: number) {
+  private steer(heroX: number, heroY: number) {
     const statics = this.ctx.getStatics();
-    const speed = this.profile.speed;
+    const enemies = this.ctx.getEnemies();
+    const { speed, preferredRange, turnRate, wanderStrength, behavior } = this.profile;
+    const cx = this.middle.x;
+    const cy = this.middle.y;
 
+    // Touch damage
     for (const t of this.ctx.getPlayerTarget()) {
       if (testAABB(this.x, this.y, this.width, this.height, t.rect)) {
         if (this.touchCooldown === 0) {
-          this.touchCooldown = 60; // 1 second between touch hits
+          this.touchCooldown = 60;
           this.ctx.onTouchPlayer();
         }
-        return;
+        break;
       }
     }
 
-    const dx = destX - this.middle.x;
-    const dy = destY - this.middle.y;
-    const total = Math.sqrt(dx * dx + dy * dy) || 1;
-    const vx = (dx / total) * speed;
-    const vy = (dy / total) * speed;
+    const dx = heroX - cx;
+    const dy = heroY - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
 
-    const colUp    = this.wouldCollide(0, -speed, statics);
-    const colDown  = this.wouldCollide(0,  speed, statics);
-    const colLeft  = this.wouldCollide(-speed, 0, statics);
-    const colRight = this.wouldCollide( speed, 0, statics);
+    // ── 1. Primary movement intention per behavior type ───────────────────────
+    let seekX = 0;
+    let seekY = 0;
 
-    if (vy < 0 && colUp) {
-      if (colLeft)  { this.doManeuver(heroX, heroY, 'up-left');  return; }
-      if (colRight) { this.doManeuver(heroX, heroY, 'up-right'); return; }
-      this.doManeuver(heroX, heroY, dx < 0 ? 'up-left-dodge' : 'up-right-dodge');
-      return;
+    if (behavior === 'orbiter') {
+      // Slowly circle the hero at preferredRange, correcting toward it radially
+      const tangentX = (-dy / dist) * this.orbitSign;
+      const tangentY = ( dx / dist) * this.orbitSign;
+      const rangeError = dist - preferredRange;
+      const radialStr = Math.min(Math.abs(rangeError) / preferredRange, 1);
+      const radialX = (dx / dist) * Math.sign(rangeError) * radialStr;
+      const radialY = (dy / dist) * Math.sign(rangeError) * radialStr;
+      seekX = (tangentX * 0.78 + radialX * 0.22) * speed;
+      seekY = (tangentY * 0.78 + radialY * 0.22) * speed;
+
+    } else if (behavior === 'ranger') {
+      if (dist < preferredRange * 0.75) {
+        // Hero is too close — back away while strafing perpendicular
+        const strafeX = -dy / dist;
+        const strafeY =  dx / dist;
+        seekX = ((-dx / dist) * 0.65 + strafeX * 0.35) * speed;
+        seekY = ((-dy / dist) * 0.65 + strafeY * 0.35) * speed;
+      } else if (dist > preferredRange * 1.35) {
+        // Too far — close the gap straight on
+        seekX = (dx / dist) * speed;
+        seekY = (dy / dist) * speed;
+      } else {
+        // In the comfortable band — strafe across the hero's face
+        const strafeX = -dy / dist;
+        const strafeY =  dx / dist;
+        seekX = strafeX * speed * 0.85;
+        seekY = strafeY * speed * 0.85;
+      }
+
+    } else {
+      // seeker / charger: approach to preferredRange, linger there
+      if (dist > preferredRange) {
+        seekX = (dx / dist) * speed;
+        seekY = (dy / dist) * speed;
+      } else {
+        // Slightly back off to hold preferred distance
+        const excess = (preferredRange - dist) / preferredRange;
+        seekX = (-dx / dist) * speed * excess * 0.4;
+        seekY = (-dy / dist) * speed * excess * 0.4;
+      }
     }
-    if (vy > 0 && colDown) {
-      if (colLeft)  { this.doManeuver(heroX, heroY, 'down-left');  return; }
-      if (colRight) { this.doManeuver(heroX, heroY, 'down-right'); return; }
-      this.doManeuver(heroX, heroY, dx < 0 ? 'down-left-dodge' : 'down-right-dodge');
-      return;
+
+    // ── 2. Separation — push away from nearby enemies ─────────────────────────
+    let sepX = 0;
+    let sepY = 0;
+    for (const e of enemies) {
+      if (e === this) continue;
+      const ex = cx - e.middle.x;
+      const ey = cy - e.middle.y;
+      const d = Math.sqrt(ex * ex + ey * ey) || 1;
+      const threshold = SEP_RADIUS + (this.width + e.width) * 0.3;
+      if (d < threshold) {
+        const strength = (threshold - d) / threshold;
+        sepX += (ex / d) * strength * speed * 2.2;
+        sepY += (ey / d) * strength * speed * 2.2;
+      }
     }
 
-    if (!colUp    && vy < 0) this.y += vy;
-    if (!colDown  && vy > 0) this.y += vy;
-    if (!colLeft  && vx < 0) this.x += vx;
-    if (!colRight && vx > 0) this.x += vx;
-  }
+    // ── 3. Wall avoidance — probe ahead in current travel direction ───────────
+    let wallX = 0;
+    let wallY = 0;
+    const currentLen = Math.sqrt(this.vx * this.vx + this.vy * this.vy) || 1;
+    const fdx = this.vx / currentLen;
+    const fdy = this.vy / currentLen;
 
-  private doManeuver(heroX: number, heroY: number, type: string) {
-    const D = 120;
-    this.maneuverTimer = 40;
-    switch (type) {
-      case 'up-left':
-        if (!this.justCollidedLeft) { this.justCollidedLeft = true; this.maneuverX = heroX + D; this.maneuverY = heroY; }
-        else { this.justCollidedLeft = false; this.maneuverX = this.x; this.maneuverY = heroY + D; }
-        break;
-      case 'up-right':
-        if (!this.justCollidedRight) { this.justCollidedRight = true; this.maneuverX = heroX - D; this.maneuverY = heroY; }
-        else { this.justCollidedRight = false; this.maneuverX = this.x; this.maneuverY = heroY + D; }
-        break;
-      case 'down-left':
-        if (!this.justCollidedLeft) { this.justCollidedLeft = true; this.maneuverX = heroX + D; this.maneuverY = heroY; }
-        else { this.justCollidedLeft = false; this.maneuverX = this.x; this.maneuverY = heroY - D; }
-        break;
-      case 'down-right':
-        if (!this.justCollidedRight) { this.justCollidedRight = true; this.maneuverX = heroX - D; this.maneuverY = heroY; }
-        else { this.justCollidedRight = false; this.maneuverX = this.x; this.maneuverY = heroY - D; }
-        break;
-      default:
-        this.maneuverX = heroX + (type.includes('left') ? -D : D);
-        this.maneuverY = heroY;
+    // Three whiskers: forward, and ±45°
+    const whiskers = [
+      { nx: fdx,                      ny: fdy,                      w: 3.0 },
+      { nx: fdx * 0.707 - fdy * 0.707, ny: fdx * 0.707 + fdy * 0.707, w: 1.5 },
+      { nx: fdx * 0.707 + fdy * 0.707, ny: -fdx * 0.707 + fdy * 0.707, w: 1.5 },
+    ];
+
+    for (const wh of whiskers) {
+      const wlen = Math.sqrt(wh.nx * wh.nx + wh.ny * wh.ny) || 1;
+      const wnx = wh.nx / wlen;
+      const wny = wh.ny / wlen;
+      for (let step = 1; step <= 3; step++) {
+        const px = cx + wnx * WALL_LOOK_AHEAD * step / 3;
+        const py = cy + wny * WALL_LOOK_AHEAD * step / 3;
+        for (const s of statics) {
+          if (px > s.x && px < s.x + s.width && py > s.y && py < s.y + s.height) {
+            const wx = cx - (s.x + s.width / 2);
+            const wy = cy - (s.y + s.height / 2);
+            const wd = Math.sqrt(wx * wx + wy * wy) || 1;
+            const stepW = (4 - step); // closer probes count more
+            wallX += (wx / wd) * stepW * wh.w * speed * 1.6;
+            wallY += (wy / wd) * stepW * wh.w * speed * 1.6;
+          }
+        }
+      }
+    }
+
+    // ── 4. Wander — small random angle drift ──────────────────────────────────
+    this.wanderAngle += (Math.random() - 0.5) * 0.45;
+    const wanderX = Math.cos(this.wanderAngle) * wanderStrength * speed;
+    const wanderY = Math.sin(this.wanderAngle) * wanderStrength * speed;
+
+    // ── 5. Combine all forces, normalise to speed ─────────────────────────────
+    const fx = seekX + sepX + wallX + wanderX;
+    const fy = seekY + sepY + wallY + wanderY;
+    const flen = Math.sqrt(fx * fx + fy * fy) || 1;
+    const targetVx = (fx / flen) * speed;
+    const targetVy = (fy / flen) * speed;
+
+    // Lerp current velocity toward target (turnRate controls how quickly)
+    this.vx += (targetVx - this.vx) * turnRate;
+    this.vy += (targetVy - this.vy) * turnRate;
+
+    // ── 6. Move with wall sliding ─────────────────────────────────────────────
+    if (this.wouldCollide(this.vx, 0, statics)) {
+      this.vx *= -0.15; // small bounce to unstick from corners
+    } else {
+      this.x += this.vx;
+    }
+    if (this.wouldCollide(0, this.vy, statics)) {
+      this.vy *= -0.15;
+    } else {
+      this.y += this.vy;
     }
   }
 

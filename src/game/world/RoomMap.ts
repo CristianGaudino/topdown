@@ -1,5 +1,6 @@
 import { Room, Direction } from './Room';
 import { GunType } from '../objects/Gun';
+import { PickupType } from '../objects/Pickup';
 
 const GRID_SIZE = 6;
 const TOTAL_ROOMS = 10;
@@ -9,12 +10,8 @@ type Grid = (Room | null)[][];
 const OPPOSITE: Record<Direction, Direction> = {
   up: 'down', down: 'up', left: 'right', right: 'left',
 };
-
 const DELTA: Record<Direction, [number, number]> = {
-  up:    [-1,  0],
-  down:  [ 1,  0],
-  left:  [ 0, -1],
-  right: [ 0,  1],
+  up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1],
 };
 
 function chooseGunType(roomIndex: number, total: number, isBoss: boolean): GunType {
@@ -34,6 +31,14 @@ function chooseEnemyCount(roomIndex: number, total: number): number {
   return 4;
 }
 
+export interface RoomMapCallbacks {
+  onEnemyKilled: (x: number, y: number, gunType: GunType, isBoss: boolean) => void;
+  onPlayerDamaged: (dmg: number, x: number, y: number) => void;
+  onPlayerKilled: () => void;
+  onPlayerTouched: () => void;
+  onPickupCollected: (type: PickupType, gunType?: GunType) => void;
+}
+
 export class RoomMap {
   private grid: Grid;
   currentRoom: Room;
@@ -41,26 +46,15 @@ export class RoomMap {
 
   private cw: number;
   private ch: number;
-  private onEnemyKilled: () => void;
-  private onPlayerKilled: () => void;
-  private onPlayerTouched: () => void;
+  private callbacks: RoomMapCallbacks;
 
-  constructor(
-    cw: number,
-    ch: number,
-    onEnemyKilled: () => void,
-    onPlayerKilled: () => void,
-    onPlayerTouched: () => void,
-  ) {
+  constructor(cw: number, ch: number, callbacks: RoomMapCallbacks) {
     this.cw = cw;
     this.ch = ch;
-    this.onEnemyKilled = onEnemyKilled;
-    this.onPlayerKilled = onPlayerKilled;
-    this.onPlayerTouched = onPlayerTouched;
+    this.callbacks = callbacks;
 
     this.grid = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(null));
 
-    // Spawn room at centre
     const sr = Math.floor(GRID_SIZE / 2);
     const sc = Math.floor(GRID_SIZE / 2);
     this.grid[sr][sc] = this.makeRoom(sr, sc, 8, false, 0, TOTAL_ROOMS);
@@ -70,21 +64,19 @@ export class RoomMap {
   }
 
   private makeRoom(
-    row: number,
-    col: number,
-    wallCount: number,
-    isBoss: boolean,
-    roomIndex: number,
-    total: number,
+    row: number, col: number,
+    wallCount: number, isBoss: boolean,
+    roomIndex: number, total: number,
   ): Room {
     const room = new Room(row, col, this.cw, this.ch, wallCount, 'closed', 'closed', 'closed', 'closed');
     room.setCallbacks(
-      () => { this.totalEnemies--; this.onEnemyKilled(); },
-      this.onPlayerKilled,
-      this.onPlayerTouched,
+      this.callbacks.onEnemyKilled,
+      this.callbacks.onPlayerDamaged,
+      this.callbacks.onPlayerKilled,
+      this.callbacks.onPlayerTouched,
+      this.callbacks.onPickupCollected,
     );
 
-    // Don't spawn enemies in spawn room
     if (roomIndex > 0) {
       const count = isBoss ? 1 : chooseEnemyCount(roomIndex, total);
       const gun = chooseGunType(roomIndex, total, isBoss);
@@ -99,7 +91,6 @@ export class RoomMap {
     if (remaining <= 0) return;
 
     const dirs: Direction[] = ['up', 'down', 'left', 'right'];
-    // Shuffle
     for (let i = dirs.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
@@ -116,25 +107,18 @@ export class RoomMap {
       if (this.grid[nr][nc] !== null) continue;
 
       const isBoss = remaining === 1;
-      const wallCount = isBoss ? 4 : 12;
-      const newRoom = this.makeRoom(nr, nc, wallCount, isBoss, roomIndex, TOTAL_ROOMS);
+      const newRoom = this.makeRoom(nr, nc, isBoss ? 4 : 12, isBoss, roomIndex, TOTAL_ROOMS);
       this.grid[nr][nc] = newRoom;
-
-      // Link rooms
       this.linkRooms(row, col, dir);
 
       remaining--;
       roomIndex++;
       this.generate(nr, nc, remaining, roomIndex);
-      // Update remaining after recursive call
-      // (depth-first, so just break after first successful branch from here)
       break;
     }
 
-    // Try remaining directions if not done
     for (const dir of dirs) {
       if (remaining <= 0) break;
-
       const [dr, dc] = DELTA[dir];
       const nr = row + dr;
       const nc = col + dc;
@@ -142,8 +126,7 @@ export class RoomMap {
       if (this.grid[nr][nc] !== null) continue;
 
       const isBoss = remaining === 1;
-      const wallCount = isBoss ? 4 : 12;
-      const newRoom = this.makeRoom(nr, nc, wallCount, isBoss, roomIndex, TOTAL_ROOMS);
+      const newRoom = this.makeRoom(nr, nc, isBoss ? 4 : 12, isBoss, roomIndex, TOTAL_ROOMS);
       this.grid[nr][nc] = newRoom;
       this.linkRooms(row, col, dir);
       remaining--;
@@ -168,7 +151,6 @@ export class RoomMap {
     }
   }
 
-  /** Returns all non-null rooms for minimap rendering */
   getRooms(): { room: Room; row: number; col: number }[] {
     const result: { room: Room; row: number; col: number }[] = [];
     for (let r = 0; r < GRID_SIZE; r++) {

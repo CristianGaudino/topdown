@@ -11,11 +11,14 @@ const CANVAS_HEIGHT = 675;
 const DEFAULT_STATE: GameState = {
   heroHealth: 100,
   heroMaxHealth: 100,
+  heroGun: 'rifle',
   enemiesRemaining: 0,
   status: 'playing',
   currentRoomRow: 2,
   currentRoomCol: 2,
   mapRooms: [],
+  dashCooldownFraction: 0,
+  stats: { kills: 0, damageTaken: 0, healthPickedUp: 0, gunsPickedUp: 0 },
 };
 
 export default function GameCanvas() {
@@ -42,6 +45,12 @@ export default function GameCanvas() {
     gameRef.current?.restart();
   }, []);
 
+  const handleResume = useCallback(() => {
+    // Trigger pause toggle by simulating Escape — game manages its own pause state.
+    // We dispatch a keydown event so InputManager's Escape handler fires.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  }, []);
+
   return (
     <div
       className="relative w-full"
@@ -55,7 +64,15 @@ export default function GameCanvas() {
         style={{ imageRendering: 'pixelated' }}
       />
       <HUD state={gameState} />
-      <GameOverlay status={gameState.status} onRestart={handleRestart} />
+      <GameOverlay
+        status={gameState.status}
+        stats={gameState.stats}
+        heroGun={gameState.heroGun}
+        heroHealth={gameState.heroHealth}
+        heroMaxHealth={gameState.heroMaxHealth}
+        onRestart={handleRestart}
+        onResume={handleResume}
+      />
     </div>
   );
 }

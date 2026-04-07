@@ -3,9 +3,10 @@ export interface InputState {
   down: boolean;
   left: boolean;
   right: boolean;
+  dash: boolean;       // Space — consumed on read
   mouseX: number;
   mouseY: number;
-  mouseDown: boolean;
+  mouseDown: boolean;  // hold to shoot
 }
 
 export class InputManager {
@@ -14,13 +15,14 @@ export class InputManager {
     down: false,
     left: false,
     right: false,
+    dash: false,
     mouseX: 0,
     mouseY: 0,
     mouseDown: false,
   };
 
   private canvas: HTMLCanvasElement;
-  private onShoot: ((x: number, y: number) => void) | null = null;
+  private onPause: (() => void) | null = null;
 
   private keydownHandler: (e: KeyboardEvent) => void;
   private keyupHandler: (e: KeyboardEvent) => void;
@@ -37,6 +39,13 @@ export class InputManager {
         case 's': this.state.down = true; break;
         case 'a': this.state.left = true; break;
         case 'd': this.state.right = true; break;
+        case ' ':
+          e.preventDefault();
+          this.state.dash = true;
+          break;
+        case 'escape':
+          this.onPause?.();
+          break;
       }
     };
 
@@ -58,32 +67,35 @@ export class InputManager {
     };
 
     this.mousedownHandler = (e: MouseEvent) => {
+      if (e.button !== 0) return;
       this.state.mouseDown = true;
       const rect = this.canvas.getBoundingClientRect();
       const scaleX = this.canvas.width / rect.width;
       const scaleY = this.canvas.height / rect.height;
-      const x = (e.clientX - rect.left) * scaleX;
-      const y = (e.clientY - rect.top) * scaleY;
-      this.onShoot?.(x, y);
+      this.state.mouseX = (e.clientX - rect.left) * scaleX;
+      this.state.mouseY = (e.clientY - rect.top) * scaleY;
     };
 
-    this.mouseupHandler = () => {
-      this.state.mouseDown = false;
+    this.mouseupHandler = (e: MouseEvent) => {
+      if (e.button === 0) this.state.mouseDown = false;
     };
 
     window.addEventListener('keydown', this.keydownHandler);
     window.addEventListener('keyup', this.keyupHandler);
     canvas.addEventListener('mousemove', this.mousemoveHandler);
     canvas.addEventListener('mousedown', this.mousedownHandler);
-    canvas.addEventListener('mouseup', this.mouseupHandler);
+    window.addEventListener('mouseup', this.mouseupHandler);
   }
 
-  setShootCallback(cb: (x: number, y: number) => void) {
-    this.onShoot = cb;
+  setPauseCallback(cb: () => void) {
+    this.onPause = cb;
   }
 
+  /** Returns a snapshot; clears one-shot flags (dash) */
   get(): InputState {
-    return this.state;
+    const snap = { ...this.state };
+    this.state.dash = false; // consumed
+    return snap;
   }
 
   destroy() {
@@ -91,6 +103,6 @@ export class InputManager {
     window.removeEventListener('keyup', this.keyupHandler);
     this.canvas.removeEventListener('mousemove', this.mousemoveHandler);
     this.canvas.removeEventListener('mousedown', this.mousedownHandler);
-    this.canvas.removeEventListener('mouseup', this.mouseupHandler);
+    window.removeEventListener('mouseup', this.mouseupHandler);
   }
 }

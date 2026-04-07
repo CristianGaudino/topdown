@@ -57,8 +57,8 @@ export class Gun {
     targetX: number,
     targetY: number,
     getStatics: () => Rect[],
-    getEnemyTargets: () => Array<{ rect: Rect; onHit: (dmg: number) => void }>,
-    getPlayerTarget: () => Array<{ rect: Rect; onHit: (dmg: number) => void }>,
+    getEnemyTargets: () => Array<{ rect: Rect; onHit: (dmg: number, x: number, y: number) => void }>,
+    getPlayerTarget: () => Array<{ rect: Rect; onHit: (dmg: number, x: number, y: number) => void }>,
     spawnParticles: (p: Particle[]) => void,
   ): Bullet[] {
     if (!this.canFire()) return [];

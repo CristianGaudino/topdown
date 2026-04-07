@@ -2,18 +2,32 @@ import { GameLoop } from './engine/GameLoop';
 import { InputManager } from './engine/InputManager';
 import { Hero } from './objects/Hero';
 import { RoomMap } from './world/RoomMap';
+import { GunType } from './objects/Gun';
+import { PickupType } from './objects/Pickup';
 
-export type GameStatus = 'playing' | 'won' | 'lost';
+export type GameStatus = 'playing' | 'paused' | 'won' | 'lost';
+
+export interface RunStats {
+  kills: number;
+  damageTaken: number;
+  healthPickedUp: number;
+  gunsPickedUp: number;
+}
 
 export interface GameState {
   heroHealth: number;
   heroMaxHealth: number;
+  heroGun: GunType;
   enemiesRemaining: number;
   status: GameStatus;
   currentRoomRow: number;
   currentRoomCol: number;
   mapRooms: { row: number; col: number; isCurrent: boolean; hasEnemies: boolean }[];
+  dashCooldownFraction: number;
+  stats: RunStats;
 }
+
+const HEAL_AMOUNT = 30;
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -24,28 +38,27 @@ export class Game {
   private map: RoomMap;
   private status: GameStatus = 'playing';
   private onStateChange: (state: GameState) => void;
+  private stats: RunStats = { kills: 0, damageTaken: 0, healthPickedUp: 0, gunsPickedUp: 0 };
 
   constructor(canvas: HTMLCanvasElement, onStateChange: (state: GameState) => void) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
     this.onStateChange = onStateChange;
 
-    this.map = new RoomMap(
-      canvas.width,
-      canvas.height,
-      () => this.handleEnemyKilled(),
-      () => this.handlePlayerDied(),
-      () => this.handlePlayerTouched(),
-    );
+    this.map = new RoomMap(canvas.width, canvas.height, {
+      onEnemyKilled: (x, y, gunType, isBoss) => this.handleEnemyKilled(x, y, gunType, isBoss),
+      onPlayerDamaged: (dmg, x, y) => this.handlePlayerDamaged(dmg, x, y),
+      onPlayerKilled: () => this.handlePlayerDied(),
+      onPlayerTouched: () => {},
+      onPickupCollected: (type, gunType) => this.handlePickupCollected(type, gunType),
+    });
 
     this.hero = new Hero(80, canvas.height / 2 - 14);
     this.wireHeroToRoom();
     this.map.currentRoom.heroPresent = this.hero;
 
     this.input = new InputManager(canvas);
-    this.input.setShootCallback((x, y) => {
-      if (this.status === 'playing') this.hero.shoot(x, y);
-    });
+    this.input.setPauseCallback(() => this.togglePause());
 
     this.loop = new GameLoop(() => this.tick());
   }
@@ -62,24 +75,35 @@ export class Game {
   restart() {
     this.stop();
     this.status = 'playing';
-    this.map = new RoomMap(
-      this.canvas.width,
-      this.canvas.height,
-      () => this.handleEnemyKilled(),
-      () => this.handlePlayerDied(),
-      () => this.handlePlayerTouched(),
-    );
+    this.stats = { kills: 0, damageTaken: 0, healthPickedUp: 0, gunsPickedUp: 0 };
+
+    this.map = new RoomMap(this.canvas.width, this.canvas.height, {
+      onEnemyKilled: (x, y, gunType, isBoss) => this.handleEnemyKilled(x, y, gunType, isBoss),
+      onPlayerDamaged: (dmg, x, y) => this.handlePlayerDamaged(dmg, x, y),
+      onPlayerKilled: () => this.handlePlayerDied(),
+      onPlayerTouched: () => {},
+      onPickupCollected: (type, gunType) => this.handlePickupCollected(type, gunType),
+    });
+
     this.hero = new Hero(80, this.canvas.height / 2 - 14);
     this.wireHeroToRoom();
     this.map.currentRoom.heroPresent = this.hero;
 
     this.input = new InputManager(this.canvas);
-    this.input.setShootCallback((x, y) => {
-      if (this.status === 'playing') this.hero.shoot(x, y);
-    });
+    this.input.setPauseCallback(() => this.togglePause());
 
     this.loop = new GameLoop(() => this.tick());
     this.loop.start();
+  }
+
+  private togglePause() {
+    if (this.status === 'playing') {
+      this.status = 'paused';
+      this.emitState();
+    } else if (this.status === 'paused') {
+      this.status = 'playing';
+      this.emitState();
+    }
   }
 
   private wireHeroToRoom() {
@@ -88,8 +112,9 @@ export class Game {
     this.hero.getEnemyTargets = () =>
       room.enemies.map(e => ({
         rect: e,
-        onHit: (dmg: number) => {
+        onHit: (dmg: number, x: number, y: number) => {
           e.takeDamage(dmg);
+          room.spawnDamageNumber(x, y, dmg, false);
           if (e.health <= 0) e.ctx.onKilled();
         },
       }));
@@ -150,11 +175,19 @@ export class Game {
     }
   }
 
-  private handleEnemyKilled() {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private handleEnemyKilled(_x: number, _y: number, _gunType: GunType, _isBoss: boolean) {
+    this.stats.kills++;
+    this.map.totalEnemies--;
     if (this.map.totalEnemies <= 0 && this.status === 'playing') {
       this.status = 'won';
       this.emitState();
     }
+  }
+
+  private handlePlayerDamaged(dmg: number, x: number, y: number) {
+    this.stats.damageTaken += dmg;
+    this.map.currentRoom.spawnDamageNumber(x, y, dmg, false);
   }
 
   private handlePlayerDied() {
@@ -164,9 +197,20 @@ export class Game {
     }
   }
 
-  private handlePlayerTouched() {
-    this.hero.takeDamage(20);
-    if (this.hero.health <= 0) this.handlePlayerDied();
+  private handlePickupCollected(type: PickupType, gunType?: GunType) {
+    if (type === 'health') {
+      const healed = Math.min(HEAL_AMOUNT, this.hero.maxHealth - this.hero.health);
+      this.hero.health = Math.min(this.hero.maxHealth, this.hero.health + HEAL_AMOUNT);
+      this.stats.healthPickedUp++;
+      if (healed > 0) {
+        const m = this.hero.middle;
+        this.map.currentRoom.spawnDamageNumber(m.x, m.y - 20, healed, true);
+      }
+    } else if (type === 'gun' && gunType) {
+      this.hero.equipGun(gunType);
+      this.stats.gunsPickedUp++;
+    }
+    this.emitState();
   }
 
   private draw() {
@@ -178,6 +222,22 @@ export class Game {
 
     room.draw(ctx);
     this.hero.draw(ctx);
+
+    // Low health vignette — kicks in below 40% HP, pulses
+    const healthPct = this.hero.health / this.hero.maxHealth;
+    if (healthPct < 0.4) {
+      const intensity = (0.4 - healthPct) / 0.4;
+      const pulse = (Math.sin(Date.now() * 0.004) + 1) / 2;
+      const alpha = intensity * (0.15 + pulse * 0.25);
+      const grad = ctx.createRadialGradient(
+        this.canvas.width / 2, this.canvas.height / 2, this.canvas.height * 0.2,
+        this.canvas.width / 2, this.canvas.height / 2, this.canvas.height * 0.8,
+      );
+      grad.addColorStop(0, 'rgba(180,0,0,0)');
+      grad.addColorStop(1, `rgba(180,0,0,${alpha.toFixed(2)})`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    }
   }
 
   private emitState() {
@@ -186,7 +246,8 @@ export class Game {
     this.onStateChange({
       heroHealth: Math.max(0, this.hero.health),
       heroMaxHealth: this.hero.maxHealth,
-      enemiesRemaining: this.map.totalEnemies,
+      heroGun: this.hero.currentGunType,
+      enemiesRemaining: Math.max(0, this.map.totalEnemies),
       status: this.status,
       currentRoomRow: cr.row,
       currentRoomCol: cr.col,
@@ -196,6 +257,8 @@ export class Game {
         isCurrent: room === cr,
         hasEnemies: room.enemyCount > 0,
       })),
+      dashCooldownFraction: this.hero.dashCooldownFraction,
+      stats: { ...this.stats },
     });
   }
 }

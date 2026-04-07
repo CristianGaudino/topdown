@@ -4,13 +4,27 @@ import { Bullet } from './Bullet';
 import { Particle } from './Particle';
 import { Rect, testAABB } from '../systems/Collision';
 
-const ENEMY_SPEED = 1.5;
-const BOSS_SPEED = 1.2;
+// Visual profile per gun type
+interface EnemyProfile {
+  width: number;
+  height: number;
+  color: string;
+  label: string;
+  speed: number;
+  maxHealth: number;
+}
 
-// Injected per-frame context
+const PROFILES: Record<GunType, EnemyProfile> = {
+  rifle:     { width: 28, height: 28, color: '#922b21', label: 'R', speed: 1.5,  maxHealth: 50 },
+  smg:       { width: 22, height: 22, color: '#1a5e35', label: 'S', speed: 2.2,  maxHealth: 35 },
+  sniper:    { width: 18, height: 34, color: '#6e4c1e', label: 'SN', speed: 0.9, maxHealth: 40 },
+  shotgun:   { width: 36, height: 30, color: '#a93226', label: 'SH', speed: 1.2, maxHealth: 70 },
+  sprinkler: { width: 48, height: 48, color: '#d35400', label: '★', speed: 1.0,  maxHealth: 400 },
+};
+
 export interface EnemyContext {
   getStatics: () => Rect[];
-  getPlayerTarget: () => Array<{ rect: Rect; onHit: (dmg: number) => void }>;
+  getPlayerTarget: () => Array<{ rect: Rect; onHit: (dmg: number, x: number, y: number) => void }>;
   spawnBullet: (b: Bullet) => void;
   spawnParticles: (p: Particle[]) => void;
   onKilled: () => void;
@@ -19,6 +33,8 @@ export interface EnemyContext {
 
 export class Enemy extends Entity {
   readonly isBoss: boolean;
+  readonly gunType: GunType;
+  readonly profile: EnemyProfile;
   private gun: Gun;
   private maneuverTimer = 0;
   private maneuverX = 0;
@@ -29,11 +45,12 @@ export class Enemy extends Entity {
   ctx!: EnemyContext;
 
   constructor(x: number, y: number, gunType: GunType, isBoss = false) {
-    const color = isBoss ? '#e67e22' : '#922b21';
-    const health = isBoss ? 400 : 50;
-    super(x, y, 32, 32, color, health);
+    const profile = PROFILES[gunType];
+    super(x, y, profile.width, profile.height, profile.color, profile.maxHealth);
     this.hostile = true;
     this.isBoss = isBoss;
+    this.gunType = gunType;
+    this.profile = profile;
     this.gun = new Gun(gunType, 'enemy');
   }
 
@@ -42,12 +59,9 @@ export class Enemy extends Entity {
 
     this.gun.tick();
 
-    // Shoot at hero
     const bullets = this.gun.fire(
-      this.middle.x,
-      this.middle.y,
-      heroX,
-      heroY,
+      this.middle.x, this.middle.y,
+      heroX, heroY,
       this.ctx.getStatics,
       () => [],
       this.ctx.getPlayerTarget,
@@ -55,7 +69,6 @@ export class Enemy extends Entity {
     );
     bullets.forEach(b => this.ctx.spawnBullet(b));
 
-    // Move toward hero
     const destX = this.maneuverTimer > 0 ? this.maneuverX : heroX;
     const destY = this.maneuverTimer > 0 ? this.maneuverY : heroY;
     if (this.maneuverTimer > 0) this.maneuverTimer--;
@@ -65,11 +78,9 @@ export class Enemy extends Entity {
 
   private moveToward(destX: number, destY: number, heroX: number, heroY: number) {
     const statics = this.ctx.getStatics();
-    const speed = this.isBoss ? BOSS_SPEED : ENEMY_SPEED;
+    const speed = this.profile.speed;
 
-    // Touch check
-    const playerTargets = this.ctx.getPlayerTarget();
-    for (const t of playerTargets) {
+    for (const t of this.ctx.getPlayerTarget()) {
       if (testAABB(this.x, this.y, this.width, this.height, t.rect)) {
         this.ctx.onTouchPlayer();
         return;
@@ -87,7 +98,6 @@ export class Enemy extends Entity {
     const colLeft  = this.wouldCollide(-speed, 0, statics);
     const colRight = this.wouldCollide( speed, 0, statics);
 
-    // Handle diagonal collisions with maneuver logic
     if (vy < 0 && colUp) {
       if (colLeft)  { this.doManeuver(heroX, heroY, 'up-left');  return; }
       if (colRight) { this.doManeuver(heroX, heroY, 'up-right'); return; }
@@ -101,40 +111,35 @@ export class Enemy extends Entity {
       return;
     }
 
-    if (!colUp   && vy < 0) this.y += vy;
+    if (!colUp    && vy < 0) this.y += vy;
     if (!colDown  && vy > 0) this.y += vy;
     if (!colLeft  && vx < 0) this.x += vx;
     if (!colRight && vx > 0) this.x += vx;
   }
 
   private doManeuver(heroX: number, heroY: number, type: string) {
-    const DODGE = 120;
+    const D = 120;
     this.maneuverTimer = 40;
     switch (type) {
       case 'up-left':
-        if (!this.justCollidedLeft) { this.justCollidedLeft = true; this.maneuverX = heroX + DODGE; this.maneuverY = heroY; }
-        else { this.justCollidedLeft = false; this.maneuverX = this.x; this.maneuverY = heroY + DODGE; }
+        if (!this.justCollidedLeft) { this.justCollidedLeft = true; this.maneuverX = heroX + D; this.maneuverY = heroY; }
+        else { this.justCollidedLeft = false; this.maneuverX = this.x; this.maneuverY = heroY + D; }
         break;
       case 'up-right':
-        if (!this.justCollidedRight) { this.justCollidedRight = true; this.maneuverX = heroX - DODGE; this.maneuverY = heroY; }
-        else { this.justCollidedRight = false; this.maneuverX = this.x; this.maneuverY = heroY + DODGE; }
+        if (!this.justCollidedRight) { this.justCollidedRight = true; this.maneuverX = heroX - D; this.maneuverY = heroY; }
+        else { this.justCollidedRight = false; this.maneuverX = this.x; this.maneuverY = heroY + D; }
         break;
       case 'down-left':
-        if (!this.justCollidedLeft) { this.justCollidedLeft = true; this.maneuverX = heroX + DODGE; this.maneuverY = heroY; }
-        else { this.justCollidedLeft = false; this.maneuverX = this.x; this.maneuverY = heroY - DODGE; }
+        if (!this.justCollidedLeft) { this.justCollidedLeft = true; this.maneuverX = heroX + D; this.maneuverY = heroY; }
+        else { this.justCollidedLeft = false; this.maneuverX = this.x; this.maneuverY = heroY - D; }
         break;
       case 'down-right':
-        if (!this.justCollidedRight) { this.justCollidedRight = true; this.maneuverX = heroX - DODGE; this.maneuverY = heroY; }
-        else { this.justCollidedRight = false; this.maneuverX = this.x; this.maneuverY = heroY - DODGE; }
+        if (!this.justCollidedRight) { this.justCollidedRight = true; this.maneuverX = heroX - D; this.maneuverY = heroY; }
+        else { this.justCollidedRight = false; this.maneuverX = this.x; this.maneuverY = heroY - D; }
         break;
-      case 'up-left-dodge':
-        this.maneuverX = heroX - DODGE; this.maneuverY = heroY; break;
-      case 'up-right-dodge':
-        this.maneuverX = heroX + DODGE; this.maneuverY = heroY; break;
-      case 'down-left-dodge':
-        this.maneuverX = heroX - DODGE; this.maneuverY = heroY; break;
-      case 'down-right-dodge':
-        this.maneuverX = heroX + DODGE; this.maneuverY = heroY; break;
+      default:
+        this.maneuverX = heroX + (type.includes('left') ? -D : D);
+        this.maneuverY = heroY;
     }
   }
 
@@ -143,9 +148,7 @@ export class Enemy extends Entity {
     const ny = this.y + dy;
     for (const s of statics) {
       if (nx < s.x + s.width && nx + this.width > s.x &&
-          ny < s.y + s.height && ny + this.height > s.y) {
-        return true;
-      }
+          ny < s.y + s.height && ny + this.height > s.y) return true;
     }
     return false;
   }
@@ -153,14 +156,28 @@ export class Enemy extends Entity {
   draw(ctx: CanvasRenderingContext2D) {
     super.draw(ctx);
 
-    // Health pip for non-boss
-    if (!this.isBoss) {
-      const maxHp = 50;
-      const pct = Math.max(0, this.health / maxHp);
-      ctx.fillStyle = 'rgba(0,0,0,0.4)';
-      ctx.fillRect(this.x, this.y - 6, this.width, 4);
-      ctx.fillStyle = pct > 0.5 ? '#27ae60' : pct > 0.25 ? '#f39c12' : '#e74c3c';
-      ctx.fillRect(this.x, this.y - 6, this.width * pct, 4);
+    // Boss glow ring
+    if (this.isBoss) {
+      ctx.save();
+      ctx.strokeStyle = '#f39c12';
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.6 + Math.sin(Date.now() * 0.005) * 0.4;
+      ctx.strokeRect(this.x - 3, this.y - 3, this.width + 6, this.height + 6);
+      ctx.restore();
     }
+
+    // Health bar
+    const pct = Math.max(0, this.health / this.profile.maxHealth);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(this.x, this.y - 7, this.width, 4);
+    ctx.fillStyle = pct > 0.5 ? '#27ae60' : pct > 0.25 ? '#f39c12' : '#e74c3c';
+    ctx.fillRect(this.x, this.y - 7, this.width * pct, 4);
+
+    // Type label
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.font = `bold ${this.isBoss ? 10 : 8}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(this.profile.label, this.middle.x, this.middle.y);
   }
 }

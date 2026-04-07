@@ -2,6 +2,7 @@
 
 import { GameState } from '@/game/Game';
 import { GunType } from '@/game/objects/Gun';
+import { RoomRole } from '@/game/world/Room';
 
 interface HUDProps {
   state: GameState;
@@ -86,36 +87,37 @@ function GunIndicator({ gunType }: { gunType: GunType }) {
   );
 }
 
+function roomColor(role: RoomRole, hasEnemies: boolean, isCurrent: boolean): string {
+  if (isCurrent)        return '#8b5cf6';
+  if (role === 'loot')  return '#0d9488';
+  if (role === 'start') return '#475569';
+  if (role === 'boss')  return hasEnemies ? '#dc2626' : '#92400e';
+  if (role === 'elite') return hasEnemies ? '#ea580c' : '#78350f';
+  return hasEnemies ? '#7f1d1d' : '#374151';
+}
+
 function Minimap({ state }: { state: GameState }) {
-  const cellSize = 10;
-  const gap = 2;
-  const gridSize = 6;
+  const cellSize  = 10;
+  const gap       = 2;
+  const gridSize  = 6;
   const totalSize = gridSize * (cellSize + gap);
 
   return (
     <div className="relative" style={{ width: totalSize, height: totalSize }}>
-      {state.mapRooms.map(({ row, col, isCurrent, hasEnemies }) => {
-        const x = col * (cellSize + gap);
-        const y = row * (cellSize + gap);
-        let bg = '#374151';
-        if (hasEnemies) bg = '#7f1d1d';
-        if (isCurrent) bg = '#8b5cf6';
-
-        return (
-          <div
-            key={`${row}-${col}`}
-            className="absolute rounded-sm"
-            style={{
-              left: x,
-              top: y,
-              width: cellSize,
-              height: cellSize,
-              backgroundColor: bg,
-              outline: isCurrent ? '1px solid #c4b5fd' : 'none',
-            }}
-          />
-        );
-      })}
+      {state.mapRooms.map(({ row, col, isCurrent, hasEnemies, role }) => (
+        <div
+          key={`${row}-${col}`}
+          className="absolute rounded-sm"
+          style={{
+            left:            col * (cellSize + gap),
+            top:             row * (cellSize + gap),
+            width:           cellSize,
+            height:          cellSize,
+            backgroundColor: roomColor(role, hasEnemies, isCurrent),
+            outline:         isCurrent ? '1px solid #c4b5fd' : 'none',
+          }}
+        />
+      ))}
     </div>
   );
 }

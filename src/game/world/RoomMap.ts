@@ -1,8 +1,8 @@
-import { Room, Direction } from './Room';
+import { Room, Direction, RoomRole, LayoutType } from './Room';
 import { GunType } from '../objects/Gun';
 import { PickupType } from '../objects/Pickup';
 
-const GRID_SIZE = 6;
+const GRID_SIZE  = 6;
 const TOTAL_ROOMS = 10;
 
 type Grid = (Room | null)[][];
@@ -14,30 +14,33 @@ const DELTA: Record<Direction, [number, number]> = {
   up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1],
 };
 
-function chooseGunType(roomIndex: number, total: number, isBoss: boolean): GunType {
-  if (isBoss) return 'sprinkler';
-  const pct = roomIndex / total;
-  if (pct < 0.2) return 'rifle';
-  if (pct < 0.5) return 'smg';
-  if (pct < 0.75) return 'sniper';
-  return 'shotgun';
-}
-
-function chooseEnemyCount(roomIndex: number, total: number): number {
-  const pct = roomIndex / total;
-  if (pct < 0.1) return 1;
-  if (pct < 0.3) return 2;
-  if (pct < 0.6) return 3;
-  return 4;
-}
-
 export interface RoomMapCallbacks {
-  onEnemyKilled: (x: number, y: number, gunType: GunType, isBoss: boolean) => void;
-  onPlayerDamaged: (dmg: number, x: number, y: number) => void;
-  onPlayerKilled: () => void;
-  onPlayerTouched: () => void;
-  onPickupCollected: (type: PickupType, gunType?: GunType) => void;
+  onEnemyKilled:    (x: number, y: number, gunType: GunType, isBoss: boolean) => void;
+  onPlayerDamaged:  (dmg: number, x: number, y: number) => void;
+  onPlayerKilled:   () => void;
+  onPlayerTouched:  () => void;
+  onPickupCollected:(type: PickupType, gunType?: GunType) => void;
 }
+
+// ── Internal planning types ───────────────────────────────────────────────────
+
+interface CellEntry {
+  row: number;
+  col: number;
+  neighbors: Map<Direction, { row: number; col: number }>;
+}
+
+interface RoomPlan {
+  cell:       CellEntry;
+  distance:   number;
+  role:       RoomRole;
+  layout:     LayoutType;
+  enemyType:  GunType | null;
+  enemyCount: number;
+  isBoss:     boolean;
+}
+
+// ── RoomMap ───────────────────────────────────────────────────────────────────
 
 export class RoomMap {
   private grid: Grid;
@@ -49,105 +52,232 @@ export class RoomMap {
   private callbacks: RoomMapCallbacks;
 
   constructor(cw: number, ch: number, callbacks: RoomMapCallbacks) {
-    this.cw = cw;
-    this.ch = ch;
+    this.cw        = cw;
+    this.ch        = ch;
     this.callbacks = callbacks;
-
-    this.grid = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(null));
+    this.grid      = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(null));
 
     const sr = Math.floor(GRID_SIZE / 2);
     const sc = Math.floor(GRID_SIZE / 2);
-    this.grid[sr][sc] = this.makeRoom(sr, sc, 8, false, 0, TOTAL_ROOMS);
-    this.currentRoom = this.grid[sr][sc]!;
 
-    this.generate(sr, sc, TOTAL_ROOMS - 1, 1);
+    // Phase 1 — build connectivity graph (no Room objects yet)
+    const cells = this.buildGraph(sr, sc);
+
+    // Phase 2 — BFS distances, role assignment, layout + enemy selection
+    const plans = this.planRooms(cells, sr, sc);
+
+    // Phase 3a — create Room objects and register them in the grid
+    const roomLookup = new Map<string, Room>();
+    for (const plan of plans) {
+      const room = new Room(
+        plan.cell.row, plan.cell.col,
+        cw, ch,
+        plan.role, plan.layout,
+        'closed', 'closed', 'closed', 'closed',
+      );
+      room.setCallbacks(
+        callbacks.onEnemyKilled,
+        callbacks.onPlayerDamaged,
+        callbacks.onPlayerKilled,
+        callbacks.onPlayerTouched,
+        callbacks.onPickupCollected,
+      );
+      this.grid[plan.cell.row][plan.cell.col] = room;
+      roomLookup.set(`${plan.cell.row},${plan.cell.col}`, room);
+    }
+
+    // Phase 3b — link neighbours and open connection gates (must happen before
+    // spawnEnemies so that lockGates() has gates to lock)
+    for (const plan of plans) {
+      const room = roomLookup.get(`${plan.cell.row},${plan.cell.col}`)!;
+      for (const [dir, { row: nr, col: nc }] of plan.cell.neighbors) {
+        const neighbor = roomLookup.get(`${nr},${nc}`)!;
+        this.setNeighbor(room, dir, neighbor);
+        room.openGate(dir);
+      }
+    }
+
+    // Phase 3c — spawn enemies / initial pickups
+    for (const plan of plans) {
+      const room = roomLookup.get(`${plan.cell.row},${plan.cell.col}`)!;
+      if (plan.enemyCount > 0 && plan.enemyType) {
+        room.spawnEnemies(plan.enemyCount, plan.enemyType, plan.isBoss);
+        this.totalEnemies += room.enemyCount;
+      }
+      if (plan.role === 'start' || plan.role === 'loot') {
+        room.spawnInitialPickups();
+      }
+    }
+
+    const startPlan = plans.find(p => p.role === 'start')!;
+    this.currentRoom = roomLookup.get(`${startPlan.cell.row},${startPlan.cell.col}`)!;
   }
 
-  private makeRoom(
-    row: number, col: number,
-    wallCount: number, isBoss: boolean,
-    roomIndex: number, total: number,
-  ): Room {
-    const room = new Room(row, col, this.cw, this.ch, wallCount, 'closed', 'closed', 'closed', 'closed');
-    room.setCallbacks(
-      this.callbacks.onEnemyKilled,
-      this.callbacks.onPlayerDamaged,
-      this.callbacks.onPlayerKilled,
-      this.callbacks.onPlayerTouched,
-      this.callbacks.onPickupCollected,
-    );
+  // ── Phase 1: connectivity graph ───────────────────────────────────────────
 
-    if (roomIndex > 0) {
-      const count = isBoss ? 1 : chooseEnemyCount(roomIndex, total);
-      const gun = chooseGunType(roomIndex, total, isBoss);
-      room.spawnEnemies(count, gun, isBoss);
-      this.totalEnemies += room.enemyCount;
+  private buildGraph(sr: number, sc: number): Map<string, CellEntry> {
+    const key   = (r: number, c: number) => `${r},${c}`;
+    const cells = new Map<string, CellEntry>();
+
+    cells.set(key(sr, sc), { row: sr, col: sc, neighbors: new Map() });
+
+    // Growing-tree algorithm: picking a random frontier cell each time encourages
+    // branching rather than a single chain.
+    const frontier: Array<{ row: number; col: number }> = [{ row: sr, col: sc }];
+    let remaining = TOTAL_ROOMS - 1;
+
+    while (remaining > 0 && frontier.length > 0) {
+      // Bias: 50% pick the most-recently added cell (depth-first feel),
+      //       50% pick a random frontier cell (creates branching)
+      const idx = Math.random() < 0.5
+        ? frontier.length - 1
+        : Math.floor(Math.random() * frontier.length);
+
+      const { row, col } = frontier[idx];
+      const dirs = shuffle<Direction>(['up', 'down', 'left', 'right']);
+
+      let expanded = false;
+      for (const dir of dirs) {
+        const [dr, dc] = DELTA[dir];
+        const nr = row + dr;
+        const nc = col + dc;
+        const nk = key(nr, nc);
+
+        if (nr < 0 || nr >= GRID_SIZE || nc < 0 || nc >= GRID_SIZE) continue;
+        if (cells.has(nk)) continue;
+
+        const newCell: CellEntry = { row: nr, col: nc, neighbors: new Map() };
+        cells.set(nk, newCell);
+
+        cells.get(key(row, col))!.neighbors.set(dir, { row: nr, col: nc });
+        newCell.neighbors.set(OPPOSITE[dir], { row, col });
+
+        frontier.push({ row: nr, col: nc });
+        remaining--;
+        expanded = true;
+        break;
+      }
+
+      if (!expanded) frontier.splice(idx, 1);
     }
 
-    return room;
+    return cells;
   }
 
-  private generate(row: number, col: number, remaining: number, roomIndex: number) {
-    if (remaining <= 0) return;
+  // ── Phase 2: plan each room's role, layout, enemies ──────────────────────
 
-    const dirs: Direction[] = ['up', 'down', 'left', 'right'];
-    for (let i = dirs.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+  private planRooms(cells: Map<string, CellEntry>, sr: number, sc: number): RoomPlan[] {
+    const key = (r: number, c: number) => `${r},${c}`;
+
+    // BFS from start to find graph distances
+    const distances = new Map<string, number>();
+    distances.set(key(sr, sc), 0);
+    const queue: Array<{ row: number; col: number; dist: number }> = [
+      { row: sr, col: sc, dist: 0 },
+    ];
+    while (queue.length > 0) {
+      const { row, col, dist } = queue.shift()!;
+      for (const { row: nr, col: nc } of cells.get(key(row, col))!.neighbors.values()) {
+        const nk = key(nr, nc);
+        if (!distances.has(nk)) {
+          distances.set(nk, dist + 1);
+          queue.push({ row: nr, col: nc, dist: dist + 1 });
+        }
+      }
     }
 
-    for (const dir of dirs) {
-      if (remaining <= 0) break;
+    const maxDist = Math.max(...distances.values());
 
-      const [dr, dc] = DELTA[dir];
-      const nr = row + dr;
-      const nc = col + dc;
+    // Dead ends: cells with exactly one neighbor (excluding start)
+    const deadEnds = [...cells.entries()]
+      .filter(([k, cell]) => cell.neighbors.size === 1 && k !== key(sr, sc))
+      .sort((a, b) => distances.get(b[0])! - distances.get(a[0])!); // farthest first
 
-      if (nr < 0 || nr >= GRID_SIZE || nc < 0 || nc >= GRID_SIZE) continue;
-      if (this.grid[nr][nc] !== null) continue;
+    // Boss = farthest dead end (or just farthest room if no dead ends)
+    const bossKey = deadEnds.length > 0
+      ? deadEnds[0][0]
+      : [...distances.entries()].sort((a, b) => b[1] - a[1])[0][0];
 
-      const isBoss = remaining === 1;
-      const newRoom = this.makeRoom(nr, nc, isBoss ? 4 : 12, isBoss, roomIndex, TOTAL_ROOMS);
-      this.grid[nr][nc] = newRoom;
-      this.linkRooms(row, col, dir);
+    // Loot = next 1–2 dead ends after boss (safe, reward exploration)
+    const lootKeys = new Set(deadEnds.slice(1, 3).map(([k]) => k));
 
-      remaining--;
-      roomIndex++;
-      this.generate(nr, nc, remaining, roomIndex);
-      break;
+    // Elite = 1–2 high-distance rooms that aren't already assigned
+    const eliteKeys = new Set<string>();
+    for (const [k, dist] of [...distances.entries()].sort((a, b) => b[1] - a[1])) {
+      if (eliteKeys.size >= 2) break;
+      if (k === key(sr, sc) || k === bossKey || lootKeys.has(k)) continue;
+      if (dist >= maxDist * 0.55) eliteKeys.add(k);
     }
 
-    for (const dir of dirs) {
-      if (remaining <= 0) break;
-      const [dr, dc] = DELTA[dir];
-      const nr = row + dr;
-      const nc = col + dc;
-      if (nr < 0 || nr >= GRID_SIZE || nc < 0 || nc >= GRID_SIZE) continue;
-      if (this.grid[nr][nc] !== null) continue;
+    // Assemble plans
+    return [...cells.entries()].map(([k, cell]) => {
+      const dist = distances.get(k) ?? 0;
+      const pct  = maxDist > 0 ? dist / maxDist : 0;
 
-      const isBoss = remaining === 1;
-      const newRoom = this.makeRoom(nr, nc, isBoss ? 4 : 12, isBoss, roomIndex, TOTAL_ROOMS);
-      this.grid[nr][nc] = newRoom;
-      this.linkRooms(row, col, dir);
-      remaining--;
-      roomIndex++;
+      const role: RoomRole =
+        k === key(sr, sc) ? 'start'  :
+        k === bossKey     ? 'boss'   :
+        lootKeys.has(k)   ? 'loot'   :
+        eliteKeys.has(k)  ? 'elite'  :
+                            'combat';
+
+      let enemyType:  GunType | null = null;
+      let enemyCount  = 0;
+      let isBoss      = false;
+
+      if (role === 'boss') {
+        enemyType  = 'sprinkler';
+        enemyCount = 1;
+        isBoss     = true;
+      } else if (role === 'combat' || role === 'elite') {
+        // Scale enemy type with distance from start
+        if      (pct < 0.25) { enemyType = 'rifle';   enemyCount = 1; }
+        else if (pct < 0.45) { enemyType = 'smg';     enemyCount = 2; }
+        else if (pct < 0.65) { enemyType = 'sniper';  enemyCount = 2; }
+        else                  { enemyType = 'shotgun'; enemyCount = 3; }
+
+        if (role === 'elite') {
+          enemyCount = Math.min(enemyCount + 1, 5);
+          // Upgrade to the next tougher type for elite rooms
+          const tier: GunType[] = ['rifle', 'smg', 'sniper', 'shotgun'];
+          const i = tier.indexOf(enemyType as GunType);
+          if (i < tier.length - 1) enemyType = tier[i + 1];
+        }
+      }
+
+      return {
+        cell,
+        distance: dist,
+        role,
+        layout:     this.chooseLayout(role, enemyType),
+        enemyType,
+        enemyCount,
+        isBoss,
+      };
+    });
+  }
+
+  private chooseLayout(role: RoomRole, enemyType: GunType | null): LayoutType {
+    if (role === 'start' || role === 'loot') return 'open';
+    if (role === 'boss')                     return 'arena';
+
+    switch (enemyType) {
+      case 'sniper':  return 'bunker';
+      case 'smg':     return 'corridor';
+      case 'shotgun': return 'pillars';
+      case 'rifle':   return Math.random() < 0.5 ? 'cross' : 'cover-field';
+      default:        return 'cover-field';
     }
   }
 
-  private linkRooms(row: number, col: number, dir: Direction) {
-    const a = this.grid[row][col]!;
-    const [dr, dc] = DELTA[dir];
-    const b = this.grid[row + dr][col + dc]!;
-    const opp = OPPOSITE[dir];
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
-    a.openGate(dir);
-    b.openGate(opp);
-
+  private setNeighbor(room: Room, dir: Direction, neighbor: Room) {
     switch (dir) {
-      case 'up':    a.upNeighbour    = b; b.downNeighbour  = a; break;
-      case 'down':  a.downNeighbour  = b; b.upNeighbour    = a; break;
-      case 'left':  a.leftNeighbour  = b; b.rightNeighbour = a; break;
-      case 'right': a.rightNeighbour = b; b.leftNeighbour  = a; break;
+      case 'up':    room.upNeighbour    = neighbor; break;
+      case 'down':  room.downNeighbour  = neighbor; break;
+      case 'left':  room.leftNeighbour  = neighbor; break;
+      case 'right': room.rightNeighbour = neighbor; break;
     }
   }
 
@@ -160,4 +290,13 @@ export class RoomMap {
     }
     return result;
   }
+}
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }

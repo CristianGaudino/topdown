@@ -16,7 +16,7 @@ const DEFAULT_STATE: GameState = {
   status: 'playing',
   currentRoomRow: 2,
   currentRoomCol: 2,
-  mapRooms: [],
+  mapRooms: [{ row: 2, col: 2, isCurrent: true, hasEnemies: false, role: 'start' as const }],
   dashCooldownFraction: 0,
   stats: { kills: 0, damageTaken: 0, healthPickedUp: 0, gunsPickedUp: 0, shotsFired: 0, shotsHit: 0 },
 };

@@ -4,6 +4,7 @@ import { Hero } from './objects/Hero';
 import { RoomMap } from './world/RoomMap';
 import { GunType } from './objects/Gun';
 import { PickupType } from './objects/Pickup';
+import { RoomRole } from './world/Room';
 
 export type GameStatus = 'playing' | 'paused' | 'won' | 'lost';
 
@@ -24,7 +25,7 @@ export interface GameState {
   status: GameStatus;
   currentRoomRow: number;
   currentRoomCol: number;
-  mapRooms: { row: number; col: number; isCurrent: boolean; hasEnemies: boolean }[];
+  mapRooms: { row: number; col: number; isCurrent: boolean; hasEnemies: boolean; role: RoomRole }[];
   dashCooldownFraction: number;
   stats: RunStats;
 }
@@ -299,8 +300,9 @@ export class Game {
         .map(({ room, row, col }) => ({
           row,
           col,
-          isCurrent: room === cr,
+          isCurrent:  room === cr,
           hasEnemies: room.enemyCount > 0,
+          role:       room.role,
         })),
       dashCooldownFraction: this.hero.dashCooldownFraction,
       stats: { ...this.stats },

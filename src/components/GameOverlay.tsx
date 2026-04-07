@@ -41,6 +41,7 @@ function PauseMenu({ stats, heroGun, heroHealth, heroMaxHealth, onResume, onRest
           <StatRow label="Health" value={`${Math.max(0, heroHealth)} / ${heroMaxHealth}`} />
           <StatRow label="Gun" value={heroGun.toUpperCase()} />
           <StatRow label="Kills" value={stats.kills} />
+          <StatRow label="Accuracy" value={stats.shotsFired === 0 ? '—' : `${Math.round(stats.shotsHit / stats.shotsFired * 100)}%`} />
           <StatRow label="Damage taken" value={stats.damageTaken} />
         </div>
 
@@ -99,6 +100,7 @@ function EndScreen({ status, stats, onRestart }: { status: 'won' | 'lost'; stats
         {/* Stats */}
         <div className="flex flex-col gap-1 bg-gray-800/60 rounded-lg px-4 py-3 mb-5 text-left">
           <StatRow label="Enemies killed" value={stats.kills} />
+          <StatRow label="Accuracy" value={stats.shotsFired === 0 ? '—' : `${Math.round(stats.shotsHit / stats.shotsFired * 100)}%`} />
           <StatRow label="Damage taken" value={stats.damageTaken} />
           <StatRow label="Health packs" value={stats.healthPickedUp} />
           <StatRow label="Guns picked up" value={stats.gunsPickedUp} />

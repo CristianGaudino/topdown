@@ -18,7 +18,7 @@ const DEFAULT_STATE: GameState = {
   currentRoomCol: 2,
   mapRooms: [],
   dashCooldownFraction: 0,
-  stats: { kills: 0, damageTaken: 0, healthPickedUp: 0, gunsPickedUp: 0 },
+  stats: { kills: 0, damageTaken: 0, healthPickedUp: 0, gunsPickedUp: 0, shotsFired: 0, shotsHit: 0 },
 };
 
 export default function GameCanvas() {

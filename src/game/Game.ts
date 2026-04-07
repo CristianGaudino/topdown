@@ -12,6 +12,8 @@ export interface RunStats {
   damageTaken: number;
   healthPickedUp: number;
   gunsPickedUp: number;
+  shotsFired: number;
+  shotsHit: number;
 }
 
 export interface GameState {
@@ -38,7 +40,7 @@ export class Game {
   private map: RoomMap;
   private status: GameStatus = 'playing';
   private onStateChange: (state: GameState) => void;
-  private stats: RunStats = { kills: 0, damageTaken: 0, healthPickedUp: 0, gunsPickedUp: 0 };
+  private stats: RunStats = { kills: 0, damageTaken: 0, healthPickedUp: 0, gunsPickedUp: 0, shotsFired: 0, shotsHit: 0 };
   private shakeIntensity = 0;
   private shakeDuration = 0;
 
@@ -77,7 +79,7 @@ export class Game {
   restart() {
     this.stop();
     this.status = 'playing';
-    this.stats = { kills: 0, damageTaken: 0, healthPickedUp: 0, gunsPickedUp: 0 };
+    this.stats = { kills: 0, damageTaken: 0, healthPickedUp: 0, gunsPickedUp: 0, shotsFired: 0, shotsHit: 0 };
 
     this.map = new RoomMap(this.canvas.width, this.canvas.height, {
       onEnemyKilled: (x, y, gunType, isBoss) => this.handleEnemyKilled(x, y, gunType, isBoss),
@@ -122,12 +124,13 @@ export class Game {
       room.enemies.map(e => ({
         rect: e,
         onHit: (dmg: number, x: number, y: number) => {
+          this.stats.shotsHit++;
           e.takeDamage(dmg);
           room.spawnDamageNumber(x, y, dmg, false);
           if (e.health <= 0) e.ctx.onKilled();
         },
       }));
-    this.hero.spawnBullet = b => room.bullets.push(b);
+    this.hero.spawnBullet = b => { this.stats.shotsFired++; room.bullets.push(b); };
     this.hero.spawnParticles = p => room.particles.push(...p);
   }
 

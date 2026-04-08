@@ -15,22 +15,23 @@ export type RoomRole   = 'start' | 'combat' | 'elite' | 'loot' | 'boss';
 export type LayoutType = 'open' | 'pillars' | 'cross' | 'cover-field' | 'bunker' | 'corridor' | 'arena';
 
 const WALL_COLOR = '#2c3e50';
-const BORDER = 30;
+const BORDER     = 30;
+const TILE_SIZE  = 40;
 
 function buildDoorMats(cw: number, ch: number): Rectangle[] {
   return [
-    new Rectangle(BORDER,             ch / 2 - 80,       180, 160, 'transparent'),
-    new Rectangle(cw - BORDER - 180,  ch / 2 - 80,       180, 160, 'transparent'),
-    new Rectangle(cw / 2 - 80,        BORDER,             160, 180, 'transparent'),
-    new Rectangle(cw / 2 - 80,        ch - BORDER - 180,  160, 180, 'transparent'),
+    new Rectangle(BORDER,            ch / 2 - 80,       180, 160, 'transparent'),
+    new Rectangle(cw - BORDER - 180, ch / 2 - 80,       180, 160, 'transparent'),
+    new Rectangle(cw / 2 - 80,       BORDER,             160, 180, 'transparent'),
+    new Rectangle(cw / 2 - 80,       ch - BORDER - 180,  160, 180, 'transparent'),
   ];
 }
 
 const PICKUPABLE_GUNS: GunType[] = ['rifle', 'smg', 'sniper', 'shotgun'];
 
 export class Room {
-  readonly row: number;
-  readonly col: number;
+  readonly row:  number;
+  readonly col:  number;
   readonly role: RoomRole;
 
   upNeighbour:    Room | null = null;
@@ -43,14 +44,14 @@ export class Room {
   readonly leftWall:   Border;
   readonly rightWall:  Border;
 
-  walls:        Wall[]        = [];
-  staticColliders: Rect[]     = [];
-  enemies:      Enemy[]       = [];
-  bullets:      Bullet[]      = [];
-  particles:    Particle[]    = [];
-  pickups:      Pickup[]      = [];
-  damageNumbers: DamageNumber[] = [];
-  heroPresent: Hero | null = null;
+  walls:            Wall[]          = [];
+  staticColliders:  Rect[]          = [];
+  enemies:          Enemy[]         = [];
+  bullets:          Bullet[]        = [];
+  particles:        Particle[]      = [];
+  pickups:          Pickup[]        = [];
+  damageNumbers:    DamageNumber[]  = [];
+  heroPresent:      Hero | null     = null;
   locked  = false;
   visited = false;
 
@@ -58,10 +59,10 @@ export class Room {
   private readonly cw: number;
   private readonly ch: number;
 
-  private onEnemyKilled:    ((x: number, y: number, gunType: GunType, isBoss: boolean) => void) | null = null;
-  private onPlayerDamaged:  ((dmg: number, x: number, y: number) => void) | null = null;
-  private onPlayerKilled:   (() => void) | null = null;
-  private onPlayerTouched:  (() => void) | null = null;
+  private onEnemyKilled:     ((x: number, y: number, gunType: GunType, isBoss: boolean) => void) | null = null;
+  private onPlayerDamaged:   ((dmg: number, x: number, y: number) => void) | null = null;
+  private onPlayerKilled:    (() => void) | null = null;
+  private onPlayerTouched:   (() => void) | null = null;
   private onPickupCollected: ((type: PickupType, gunType?: GunType) => void) | null = null;
 
   constructor(
@@ -76,25 +77,27 @@ export class Room {
     this.ch   = ch;
     this.role = role;
 
-    this.topWall    = new Border(BORDER,        0,           cw - BORDER, BORDER, WALL_COLOR, up);
-    this.bottomWall = new Border(BORDER,        ch - BORDER, cw - BORDER, BORDER, WALL_COLOR, down);
-    this.leftWall   = new Border(0,             0,           BORDER,      ch,     WALL_COLOR, left);
-    this.rightWall  = new Border(cw - BORDER,   0,           BORDER,      ch,     WALL_COLOR, right);
+    this.topWall    = new Border(BORDER,       0,           cw - BORDER, BORDER, WALL_COLOR, up);
+    this.bottomWall = new Border(BORDER,       ch - BORDER, cw - BORDER, BORDER, WALL_COLOR, down);
+    this.leftWall   = new Border(0,            0,           BORDER,      ch,     WALL_COLOR, left);
+    this.rightWall  = new Border(cw - BORDER,  0,           BORDER,      ch,     WALL_COLOR, right);
 
     this.doorMats = buildDoorMats(cw, ch);
-    this.walls    = this.buildLayout(layout);
+
+    // Stable per-room variant: deterministic from position so it stays consistent on revisit
+    const variant = (row * 7 + col * 13) % 2;
+    this.walls = this.buildLayout(layout, variant);
     this.rebuildStaticColliders();
   }
 
-  // ── Layout generation ───────────────────────────────────────────────────────
+  // ── Layout generation ────────────────────────────────────────────────────────
 
-  private buildLayout(layout: LayoutType): Wall[] {
+  private buildLayout(layout: LayoutType, variant: number): Wall[] {
     const B  = BORDER;
-    const iW = this.cw - 2 * B; // interior width
-    const iH = this.ch - 2 * B; // interior height
+    const iW = this.cw - 2 * B;
+    const iH = this.ch - 2 * B;
 
-    // Convert fractional interior coordinates to an absolute wall spec.
-    // All positions are manually verified against door-mat zones for 1200×675.
+    // w(fx, fy, t): fractional interior position → [absX, absY, orientation]
     const w = (fx: number, fy: number, t: 0 | 1): [number, number, 0 | 1] =>
       [Math.round(B + fx * iW), Math.round(B + fy * iH), t];
 
@@ -104,73 +107,109 @@ export class Room {
     switch (layout) {
 
       case 'open':
-        // Two sparse walls — used for start and loot rooms
-        specs = [
-          w(0.08, 0.12, 0),   // upper-left
-          w(0.74, 0.74, 0),   // lower-right
+        specs = variant === 0 ? [
+          w(0.08, 0.12, 0),
+          w(0.74, 0.74, 0),
+        ] : [
+          w(0.74, 0.12, 0),
+          w(0.08, 0.74, 0),
+          w(0.43, 0.43, 1),
         ];
         break;
 
       case 'pillars':
-        // Two columns of three vertical pillars — structured sightlines, clear flanking
-        specs = [
+        specs = variant === 0 ? [
+          // 2 columns × 3 rows
           w(0.17, 0.14, 1), w(0.80, 0.14, 1),
           w(0.17, 0.44, 1), w(0.80, 0.44, 1),
           w(0.17, 0.70, 1), w(0.80, 0.70, 1),
+        ] : [
+          // 3 columns × 2 rows
+          w(0.17, 0.20, 1), w(0.47, 0.20, 1), w(0.78, 0.20, 1),
+          w(0.17, 0.62, 1), w(0.47, 0.62, 1), w(0.78, 0.62, 1),
         ];
         break;
 
       case 'cross':
-        // Horizontal arms left+right of centre, vertical arms above+below centre.
-        // Gap in the middle forces movement decisions.
-        specs = [
-          w(0.18, 0.46, 0), w(0.32, 0.46, 0),  // left horizontal arm
-          w(0.58, 0.46, 0), w(0.72, 0.46, 0),  // right horizontal arm
-          w(0.47, 0.30, 1),                      // upper vertical arm
-          w(0.47, 0.51, 1),                      // lower vertical arm
+        specs = variant === 0 ? [
+          // Classic + cross
+          w(0.18, 0.46, 0), w(0.32, 0.46, 0),
+          w(0.58, 0.46, 0), w(0.72, 0.46, 0),
+          w(0.47, 0.30, 1),
+          w(0.47, 0.51, 1),
+        ] : [
+          // Wider X-style (diagonal feel via offset arms)
+          w(0.14, 0.34, 0), w(0.14, 0.55, 0),
+          w(0.70, 0.34, 0), w(0.70, 0.55, 0),
+          w(0.40, 0.20, 1),
+          w(0.40, 0.62, 1),
         ];
         break;
 
       case 'cover-field':
-        // Scattered L/T-shaped cover clusters — asymmetric, tactical
-        specs = [
-          w(0.18, 0.18, 0), w(0.18, 0.18, 1),  // L-shape top-left
-          w(0.58, 0.12, 0),                      // mid-top bar
-          w(0.74, 0.34, 1), w(0.74, 0.34, 0),  // L-shape right
-          w(0.22, 0.62, 0),                      // left-bottom bar
-          w(0.72, 0.68, 1),                      // lower-right pillar
+        specs = variant === 0 ? [
+          // L-shapes scattered
+          w(0.18, 0.18, 0), w(0.18, 0.18, 1),
+          w(0.58, 0.12, 0),
+          w(0.74, 0.34, 1), w(0.74, 0.34, 0),
+          w(0.22, 0.62, 0),
+          w(0.72, 0.68, 1),
+        ] : [
+          // Mirror — L-shapes flipped
+          w(0.72, 0.18, 0), w(0.72, 0.18, 1),
+          w(0.32, 0.12, 0),
+          w(0.16, 0.34, 1), w(0.16, 0.34, 0),
+          w(0.68, 0.62, 0),
+          w(0.18, 0.68, 1),
         ];
         break;
 
       case 'bunker':
-        // Dense cover on one side, open sightlines on the other.
-        // Favours snipers; forces player to push or hold position.
-        specs = [
-          w(0.18, 0.16, 0), w(0.18, 0.36, 0), w(0.18, 0.56, 0),  // left wall row
-          w(0.30, 0.26, 1), w(0.30, 0.50, 1),                      // second layer
-          w(0.72, 0.43, 0), w(0.72, 0.56, 0),                      // right light cover
+        specs = variant === 0 ? [
+          // Dense left side — sniper sits behind it; player must push right
+          w(0.18, 0.16, 0), w(0.18, 0.36, 0), w(0.18, 0.56, 0),
+          w(0.30, 0.26, 1), w(0.30, 0.50, 1),
+          w(0.72, 0.43, 0), w(0.72, 0.56, 0),
+        ] : [
+          // Dense right side (mirrored)
+          w(0.72, 0.16, 0), w(0.72, 0.36, 0), w(0.72, 0.56, 0),
+          w(0.60, 0.26, 1), w(0.60, 0.50, 1),
+          w(0.18, 0.43, 0), w(0.18, 0.56, 0),
         ];
         break;
 
       case 'corridor':
-        // Zigzag walls create a winding path — tight, claustrophobic, favours SMGs
-        specs = [
-          w(0.16, 0.14, 1), w(0.16, 0.34, 0),   // left upper bend
-          w(0.35, 0.30, 0),                        // centre-left wall
-          w(0.50, 0.50, 1),                        // centre divider
-          w(0.57, 0.18, 0), w(0.62, 0.32, 1),    // centre-right bend
-          w(0.70, 0.50, 0), w(0.70, 0.67, 1),    // right lower bend
+        specs = variant === 0 ? [
+          // Zigzag left-to-right
+          w(0.16, 0.14, 1), w(0.16, 0.34, 0),
+          w(0.35, 0.30, 0),
+          w(0.50, 0.50, 1),
+          w(0.57, 0.18, 0), w(0.62, 0.32, 1),
+          w(0.70, 0.50, 0), w(0.70, 0.67, 1),
+        ] : [
+          // S-curve top-to-bottom
+          w(0.22, 0.14, 0), w(0.38, 0.14, 0),
+          w(0.55, 0.30, 1),
+          w(0.32, 0.48, 0), w(0.48, 0.48, 0),
+          w(0.20, 0.64, 1),
+          w(0.60, 0.64, 0), w(0.76, 0.64, 0),
         ];
         break;
 
       case 'arena':
       default:
-        // Cover stations around the perimeter, wide open centre — boss room
-        specs = [
-          w(0.12, 0.12, 1), w(0.80, 0.12, 1),   // top pillars
-          w(0.12, 0.68, 1), w(0.80, 0.68, 1),   // bottom pillars
-          w(0.20, 0.43, 0), w(0.72, 0.43, 0),   // side horizontal bars
-          w(0.43, 0.32, 0), w(0.43, 0.55, 0),   // centre horizontal bars
+        specs = variant === 0 ? [
+          // Corner pillars + centre bars
+          w(0.12, 0.12, 1), w(0.80, 0.12, 1),
+          w(0.12, 0.68, 1), w(0.80, 0.68, 1),
+          w(0.20, 0.43, 0), w(0.72, 0.43, 0),
+          w(0.43, 0.32, 0), w(0.43, 0.55, 0),
+        ] : [
+          // Inner ring of pillars — open corners, tight centre
+          w(0.30, 0.22, 1), w(0.62, 0.22, 1),
+          w(0.30, 0.68, 1), w(0.62, 0.68, 1),
+          w(0.15, 0.43, 0), w(0.78, 0.43, 0),
+          w(0.43, 0.16, 0), w(0.43, 0.72, 0),
         ];
         break;
     }
@@ -180,33 +219,29 @@ export class Room {
       .filter(wall => !this.isOnDoorMat(wall));
   }
 
-  // ── Initial pickups (start / loot rooms) ───────────────────────────────────
+  // ── Initial pickups (start room only; loot rooms use upgrade overlay) ────────
 
   spawnInitialPickups() {
     const cx = this.cw / 2;
     const cy = this.ch / 2;
 
-    if (this.role === 'loot') {
-      this.pickups.push(new Pickup(cx - 30, cy, 'health'));
-      const gun = PICKUPABLE_GUNS[Math.floor(Math.random() * PICKUPABLE_GUNS.length)];
-      this.pickups.push(new Pickup(cx + 20, cy, 'gun', gun));
-    } else if (this.role === 'start') {
-      // Two random non-rifle guns — gives the player a meaningful first choice
+    if (this.role === 'start') {
       const options = (['smg', 'sniper', 'shotgun'] as GunType[])
         .sort(() => Math.random() - 0.5);
       this.pickups.push(new Pickup(200, cy - 25, 'gun', options[0]));
       this.pickups.push(new Pickup(200, cy + 25, 'gun', options[1]));
     }
+    // loot rooms: upgrade overlay handled by Game.ts instead
   }
 
-  // ── Callbacks ───────────────────────────────────────────────────────────────
+  // ── Callbacks ────────────────────────────────────────────────────────────────
 
   setCallbacks(
-    onEnemyKilled:    (x: number, y: number, gunType: GunType, isBoss: boolean) => void,
-    onPlayerDamaged:  (dmg: number, x: number, y: number) => void,
-    onPlayerKilled:   () => void,
-    onPlayerTouched:  () => void,
-    onPickupCollected:(type: PickupType, gunType?: GunType) => void,
+    onEnemyKilled:     (x: number, y: number, gunType: GunType, isBoss: boolean) => void,
+    onPlayerDamaged:   (dmg: number, x: number, y: number) => void,
+    onPlayerKilled:    () => void,
+    onPlayerTouched:   () => void,
+    onPickupCollected: (type: PickupType, gunType?: GunType) => void,
   ) {
     this.onEnemyKilled    = onEnemyKilled;
     this.onPlayerDamaged  = onPlayerDamaged;
@@ -222,8 +257,8 @@ export class Room {
 
   private buildEnemyContext(enemy: Enemy) {
     return {
-      getStatics:     () => this.staticColliders,
-      getEnemies:     () => this.enemies,
+      getStatics:      () => this.staticColliders,
+      getEnemies:      () => this.enemies,
       getPlayerTarget: () =>
         this.heroPresent
           ? [{
@@ -235,9 +270,9 @@ export class Room {
               },
             }]
           : [],
-      spawnBullet:    (b: Bullet) => this.bullets.push(b),
+      spawnBullet:    (b: Bullet)     => this.bullets.push(b),
       spawnParticles: (p: Particle[]) => this.particles.push(...p),
-      onKilled:       () => this.removeEnemy(enemy),
+      onKilled:       ()              => this.removeEnemy(enemy),
       onTouchPlayer:  () => {
         if (this.heroPresent) {
           const dmg = enemy.isBoss ? 30 : 20;
@@ -251,7 +286,7 @@ export class Room {
     };
   }
 
-  // ── Enemy management ────────────────────────────────────────────────────────
+  // ── Enemy management ─────────────────────────────────────────────────────────
 
   addEnemy(enemy: Enemy) {
     enemy.ctx = this.buildEnemyContext(enemy);
@@ -305,7 +340,7 @@ export class Room {
     this.damageNumbers.push(new DamageNumber(x, y, value, isHeal));
   }
 
-  // ── Gate management ─────────────────────────────────────────────────────────
+  // ── Gate management ──────────────────────────────────────────────────────────
 
   private lockGates() {
     this.locked = true;
@@ -352,7 +387,7 @@ export class Room {
     addBorder(this.rightWall);
   }
 
-  // ── Update / Draw ────────────────────────────────────────────────────────────
+  // ── Update / Draw ─────────────────────────────────────────────────────────────
 
   update(hero: Hero | null) {
     this.heroPresent = hero;
@@ -392,19 +427,40 @@ export class Room {
   }
 
   draw(ctx: CanvasRenderingContext2D) {
+    this.drawFloor(ctx);
     this.leftWall.draw(ctx);
     this.rightWall.draw(ctx);
     this.topWall.draw(ctx);
     this.bottomWall.draw(ctx);
-    for (const w of this.walls)          w.draw(ctx);
-    for (const e of this.enemies)        e.draw(ctx);
-    for (const b of this.bullets)        b.draw(ctx);
-    for (const p of this.particles)      p.draw(ctx);
-    for (const p of this.pickups)        p.draw(ctx);
-    for (const d of this.damageNumbers)  d.draw(ctx);
+    for (const w of this.walls)         w.draw(ctx);
+    for (const e of this.enemies)       e.draw(ctx);
+    for (const b of this.bullets)       b.draw(ctx);
+    for (const p of this.particles)     p.draw(ctx);
+    for (const p of this.pickups)       p.draw(ctx);
+    for (const d of this.damageNumbers) d.draw(ctx);
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────────────────
+  private drawFloor(ctx: CanvasRenderingContext2D) {
+    // Subtle tile grid — gives depth without cluttering the screen
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth   = 1;
+    for (let x = 0; x <= this.cw; x += TILE_SIZE) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, this.ch);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= this.ch; y += TILE_SIZE) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(this.cw, y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────────
 
   private isOnDoorMat(obj: Rect): boolean {
     return this.doorMats.some(m => testAABB(obj.x, obj.y, obj.width, obj.height, m));

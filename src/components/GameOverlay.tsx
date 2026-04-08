@@ -1,6 +1,6 @@
 'use client';
 
-import { GameStatus, RunStats } from '@/game/Game';
+import { GameStatus, RunStats, UpgradeOption } from '@/game/Game';
 import { GunType } from '@/game/objects/Gun';
 
 interface GameOverlayProps {
@@ -9,16 +9,19 @@ interface GameOverlayProps {
   heroGun: GunType;
   heroHealth: number;
   heroMaxHealth: number;
+  pendingUpgrades: UpgradeOption[] | null;
+  bossHealth: { current: number; max: number; phase: 1 | 2 | 3 } | null;
   onRestart: () => void;
   onResume: () => void;
+  onUpgradeSelect: (index: number) => void;
 }
 
 const CONTROLS = [
-  { key: 'WASD', action: 'Move' },
-  { key: 'Mouse', action: 'Aim' },
+  { key: 'WASD',     action: 'Move'  },
+  { key: 'Mouse',    action: 'Aim'   },
   { key: 'Hold LMB', action: 'Shoot' },
-  { key: 'Space', action: 'Dash' },
-  { key: 'Esc', action: 'Pause' },
+  { key: 'Space',    action: 'Dash'  },
+  { key: 'Esc',      action: 'Pause' },
 ];
 
 function StatRow({ label, value }: { label: string; value: string | number }) {
@@ -30,22 +33,20 @@ function StatRow({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function PauseMenu({ stats, heroGun, heroHealth, heroMaxHealth, onResume, onRestart }: Omit<GameOverlayProps, 'status'>) {
+function PauseMenu({ stats, heroGun, heroHealth, heroMaxHealth, onResume, onRestart }: Omit<GameOverlayProps, 'status' | 'pendingUpgrades' | 'bossHealth' | 'onUpgradeSelect'>) {
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="px-8 py-6 bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-80">
         <h2 className="text-2xl font-bold text-white text-center mb-4 font-mono tracking-widest">PAUSED</h2>
 
-        {/* Current run stats */}
         <div className="mb-4 flex flex-col gap-1 bg-gray-800/60 rounded-lg px-4 py-3">
           <StatRow label="Health" value={`${Math.max(0, heroHealth)} / ${heroMaxHealth}`} />
-          <StatRow label="Gun" value={heroGun.toUpperCase()} />
-          <StatRow label="Kills" value={stats.kills} />
+          <StatRow label="Gun"    value={heroGun.toUpperCase()} />
+          <StatRow label="Kills"  value={stats.kills} />
           <StatRow label="Accuracy" value={stats.shotsFired === 0 ? '—' : `${Math.round(stats.shotsHit / stats.shotsFired * 100)}%`} />
           <StatRow label="Damage taken" value={stats.damageTaken} />
         </div>
 
-        {/* Controls reminder */}
         <div className="mb-5 flex flex-col gap-1 bg-gray-800/40 rounded-lg px-4 py-3">
           {CONTROLS.map(c => (
             <div key={c.key} className="flex justify-between text-xs font-mono">
@@ -56,16 +57,12 @@ function PauseMenu({ stats, heroGun, heroHealth, heroMaxHealth, onResume, onRest
         </div>
 
         <div className="flex flex-col gap-2">
-          <button
-            onClick={onResume}
-            className="w-full py-2 rounded-lg font-semibold text-white bg-purple-700 hover:bg-purple-600 transition-colors font-mono"
-          >
+          <button onClick={onResume}
+            className="w-full py-2 rounded-lg font-semibold text-white bg-purple-700 hover:bg-purple-600 transition-colors font-mono">
             RESUME
           </button>
-          <button
-            onClick={onRestart}
-            className="w-full py-2 rounded-lg font-semibold text-gray-300 bg-gray-700 hover:bg-gray-600 transition-colors font-mono text-sm"
-          >
+          <button onClick={onRestart}
+            className="w-full py-2 rounded-lg font-semibold text-gray-300 bg-gray-700 hover:bg-gray-600 transition-colors font-mono text-sm">
             Restart Run
           </button>
         </div>
@@ -74,11 +71,46 @@ function PauseMenu({ stats, heroGun, heroHealth, heroMaxHealth, onResume, onRest
   );
 }
 
+function UpgradeScreen({ upgrades, onSelect, onRestart }: { upgrades: UpgradeOption[]; onSelect: (i: number) => void; onRestart: () => void }) {
+  return (
+    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm gap-6">
+      <div className="text-center">
+        <h2 className="text-2xl font-bold text-teal-300 font-mono tracking-widest mb-1">LOOT ROOM</h2>
+        <p className="text-gray-400 text-sm font-mono">Choose one upgrade</p>
+      </div>
+
+      <div className="flex gap-4">
+        {upgrades.map((upg, i) => (
+          <button
+            key={upg.type}
+            onClick={() => onSelect(i)}
+            className="flex flex-col items-center gap-3 w-44 px-5 py-5 bg-gray-900 border border-gray-600 rounded-xl
+                       hover:border-teal-400 hover:bg-gray-800 transition-all duration-150 active:scale-95 group"
+          >
+            <span className="text-4xl">{upg.icon}</span>
+            <span className="text-white font-bold font-mono text-sm group-hover:text-teal-300 transition-colors">
+              {upg.label}
+            </span>
+            <span className="text-gray-400 text-xs font-mono text-center leading-tight">
+              {upg.description}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <button onClick={onRestart}
+        className="text-gray-600 hover:text-gray-400 text-xs font-mono transition-colors">
+        Restart Run
+      </button>
+    </div>
+  );
+}
+
 function EndScreen({ status, stats, onRestart }: { status: 'won' | 'lost'; stats: RunStats; onRestart: () => void }) {
-  const won = status === 'won';
-  const accuracy = stats.shotsFired === 0 ? 0 : stats.shotsHit / stats.shotsFired;
+  const won          = status === 'won';
+  const accuracy     = stats.shotsFired === 0 ? 0 : stats.shotsHit / stats.shotsFired;
   const accuracyBonus = Math.round(accuracy * 300);
-  const score = stats.kills * 100 + (won ? 500 : 0) + accuracyBonus;
+  const score        = stats.kills * 100 + (won ? 500 : 0) + accuracyBonus;
 
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-black/70 backdrop-blur-sm">
@@ -91,7 +123,6 @@ function EndScreen({ status, stats, onRestart }: { status: 'won' | 'lost'; stats
           {won ? 'All enemies eliminated.' : 'You were overwhelmed.'}
         </p>
 
-        {/* Score */}
         <div className="text-center mb-4">
           <span className="text-3xl font-bold font-mono" style={{ color: won ? '#f1c40f' : '#e74c3c' }}>
             {score.toLocaleString()}
@@ -99,14 +130,13 @@ function EndScreen({ status, stats, onRestart }: { status: 'won' | 'lost'; stats
           <span className="text-gray-500 text-xs font-mono ml-1">pts</span>
         </div>
 
-        {/* Stats */}
         <div className="flex flex-col gap-1 bg-gray-800/60 rounded-lg px-4 py-3 mb-5 text-left">
           <StatRow label="Enemies killed" value={stats.kills} />
-          <StatRow label="Accuracy" value={stats.shotsFired === 0 ? '—' : `${Math.round(stats.shotsHit / stats.shotsFired * 100)}%`} />
-          <StatRow label="Damage taken" value={stats.damageTaken} />
-          <StatRow label="Health packs" value={stats.healthPickedUp} />
+          <StatRow label="Accuracy"       value={stats.shotsFired === 0 ? '—' : `${Math.round(stats.shotsHit / stats.shotsFired * 100)}%`} />
+          <StatRow label="Damage taken"   value={stats.damageTaken} />
+          <StatRow label="Health packs"   value={stats.healthPickedUp} />
           <StatRow label="Guns picked up" value={stats.gunsPickedUp} />
-          {won && <StatRow label="Clear bonus" value="+500" />}
+          {won && <StatRow label="Clear bonus"     value="+500" />}
           <StatRow label="Accuracy bonus" value={`+${accuracyBonus}`} />
         </div>
 
@@ -124,21 +154,28 @@ function EndScreen({ status, stats, onRestart }: { status: 'won' | 'lost'; stats
   );
 }
 
-export default function GameOverlay({ status, stats, heroGun, heroHealth, heroMaxHealth, onRestart, onResume }: GameOverlayProps) {
+export default function GameOverlay({
+  status, stats, heroGun, heroHealth, heroMaxHealth,
+  pendingUpgrades, onRestart, onResume, onUpgradeSelect,
+}: GameOverlayProps) {
   if (status === 'playing') return null;
+
+  if (status === 'upgrade' && pendingUpgrades) {
+    return <UpgradeScreen upgrades={pendingUpgrades} onSelect={onUpgradeSelect} onRestart={onRestart} />;
+  }
 
   if (status === 'paused') {
     return (
       <PauseMenu
-        stats={stats}
-        heroGun={heroGun}
-        heroHealth={heroHealth}
-        heroMaxHealth={heroMaxHealth}
-        onResume={onResume}
-        onRestart={onRestart}
+        stats={stats} heroGun={heroGun} heroHealth={heroHealth} heroMaxHealth={heroMaxHealth}
+        onResume={onResume} onRestart={onRestart}
       />
     );
   }
 
-  return <EndScreen status={status} stats={stats} onRestart={onRestart} />;
+  if (status === 'won' || status === 'lost') {
+    return <EndScreen status={status} stats={stats} onRestart={onRestart} />;
+  }
+
+  return null;
 }

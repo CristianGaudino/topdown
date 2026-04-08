@@ -25,45 +25,31 @@ const GUN_LABELS: Record<GunType, string> = {
 };
 
 function HealthBar({ current, max }: { current: number; max: number }) {
-  const pct = Math.max(0, Math.min(1, current / max));
+  const pct   = Math.max(0, Math.min(1, current / max));
   const color = pct > 0.5 ? '#27ae60' : pct > 0.25 ? '#f39c12' : '#e74c3c';
 
   return (
     <div className="flex items-center gap-2">
       <span className="text-white text-xs font-mono w-6">HP</span>
       <div className="relative w-36 h-3 bg-gray-800 rounded overflow-hidden border border-gray-600">
-        <div
-          className="h-full rounded transition-all duration-100"
-          style={{ width: `${pct * 100}%`, backgroundColor: color }}
-        />
+        <div className="h-full rounded transition-all duration-100" style={{ width: `${pct * 100}%`, backgroundColor: color }} />
       </div>
-      <span className="text-white text-xs font-mono w-14">
-        {Math.max(0, current)}/{max}
-      </span>
+      <span className="text-white text-xs font-mono w-14">{Math.max(0, current)}/{max}</span>
     </div>
   );
 }
 
 function DashIndicator({ cooldownFraction }: { cooldownFraction: number }) {
-  const ready = cooldownFraction === 0;
+  const ready     = cooldownFraction === 0;
   const readiness = 1 - cooldownFraction;
 
   return (
     <div className="flex items-center gap-2">
       <span className="text-white text-xs font-mono w-6">DSH</span>
       <div className="relative w-36 h-3 bg-gray-800 rounded overflow-hidden border border-gray-600">
-        <div
-          className="h-full rounded"
-          style={{
-            width: `${readiness * 100}%`,
-            backgroundColor: ready ? '#8b5cf6' : '#6b7280',
-          }}
-        />
+        <div className="h-full rounded" style={{ width: `${readiness * 100}%`, backgroundColor: ready ? '#8b5cf6' : '#6b7280' }} />
       </div>
-      <span
-        className="text-xs font-mono w-14"
-        style={{ color: ready ? '#c4b5fd' : '#9ca3af' }}
-      >
+      <span className="text-xs font-mono w-14" style={{ color: ready ? '#c4b5fd' : '#9ca3af' }}>
         {ready ? 'READY' : '...'}
       </span>
     </div>
@@ -77,11 +63,41 @@ function GunIndicator({ gunType }: { gunType: GunType }) {
   return (
     <div className="flex items-center gap-2">
       <span className="text-white text-xs font-mono w-6">GUN</span>
-      <span
-        className="text-xs font-mono font-bold px-2 py-0.5 rounded"
-        style={{ color, border: `1px solid ${color}`, backgroundColor: color + '22' }}
-      >
+      <span className="text-xs font-mono font-bold px-2 py-0.5 rounded"
+        style={{ color, border: `1px solid ${color}`, backgroundColor: color + '22' }}>
         {label}
+      </span>
+    </div>
+  );
+}
+
+function BossHealthBar({ bossHealth }: { bossHealth: NonNullable<GameState['bossHealth']> }) {
+  const { current, max, phase } = bossHealth;
+  const pct = Math.max(0, current / max);
+  const phaseColor = phase === 3 ? '#ff4444' : phase === 2 ? '#ff8800' : '#f39c12';
+  const phaseLabel = phase === 3 ? 'ENRAGED' : phase === 2 ? 'PHASE 2' : 'PHASE 1';
+
+  return (
+    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none select-none">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-mono font-bold" style={{ color: phaseColor }}>★ BOSS</span>
+        <span className="text-xs font-mono px-1 rounded" style={{ color: phaseColor, border: `1px solid ${phaseColor}33`, backgroundColor: phaseColor + '22' }}>
+          {phaseLabel}
+        </span>
+      </div>
+      <div className="relative w-64 h-4 bg-gray-900 rounded overflow-hidden border-2" style={{ borderColor: phaseColor + '66' }}>
+        {/* Phase markers */}
+        <div className="absolute inset-0 flex">
+          <div style={{ width: '33.3%', borderRight: '1px solid rgba(255,255,255,0.2)' }} />
+          <div style={{ width: '33.3%', borderRight: '1px solid rgba(255,255,255,0.2)' }} />
+        </div>
+        <div
+          className="h-full rounded transition-none"
+          style={{ width: `${pct * 100}%`, backgroundColor: phaseColor, opacity: 0.85 }}
+        />
+      </div>
+      <span className="text-xs font-mono" style={{ color: phaseColor + 'cc' }}>
+        {Math.max(0, current)} / {max}
       </span>
     </div>
   );
@@ -97,13 +113,13 @@ function roomColor(role: RoomRole, hasEnemies: boolean, isCurrent: boolean): str
 }
 
 function Minimap({ state }: { state: GameState }) {
-  const cellSize  = 10;
-  const gap       = 2;
-  const gridSize  = 6;
-  const totalSize = gridSize * (cellSize + gap);
+  const cellSize = 10;
+  const gap      = 2;
+  const gridSize = 6;
+  const total    = gridSize * (cellSize + gap);
 
   return (
-    <div className="relative" style={{ width: totalSize, height: totalSize }}>
+    <div className="relative" style={{ width: total, height: total }}>
       {state.mapRooms.map(({ row, col, isCurrent, hasEnemies, role }) => (
         <div
           key={`${row}-${col}`}
@@ -124,24 +140,29 @@ function Minimap({ state }: { state: GameState }) {
 
 export default function HUD({ state }: HUDProps) {
   return (
-    <div className="absolute top-0 left-0 right-0 flex items-start justify-between px-4 pt-3 pointer-events-none select-none">
-      {/* Left: health + dash + gun + enemy count */}
-      <div className="flex flex-col gap-2 bg-black/50 rounded-lg px-3 py-2">
-        <HealthBar current={state.heroHealth} max={state.heroMaxHealth} />
-        <DashIndicator cooldownFraction={state.dashCooldownFraction} />
-        <GunIndicator gunType={state.heroGun} />
-        <div className="flex items-center gap-2">
-          <span className="text-white text-xs font-mono w-6">☠</span>
-          <span className="text-red-400 text-xs font-mono">
-            {state.enemiesRemaining} {state.enemiesRemaining === 1 ? 'enemy' : 'enemies'} remaining
-          </span>
+    <>
+      <div className="absolute top-0 left-0 right-0 flex items-start justify-between px-4 pt-3 pointer-events-none select-none">
+        {/* Left: health + dash + gun + enemy count */}
+        <div className="flex flex-col gap-2 bg-black/50 rounded-lg px-3 py-2">
+          <HealthBar current={state.heroHealth} max={state.heroMaxHealth} />
+          <DashIndicator cooldownFraction={state.dashCooldownFraction} />
+          <GunIndicator gunType={state.heroGun} />
+          <div className="flex items-center gap-2">
+            <span className="text-white text-xs font-mono w-6">☠</span>
+            <span className="text-red-400 text-xs font-mono">
+              {state.enemiesRemaining} {state.enemiesRemaining === 1 ? 'enemy' : 'enemies'} remaining
+            </span>
+          </div>
+        </div>
+
+        {/* Right: minimap */}
+        <div className="bg-black/50 rounded-lg p-2">
+          <Minimap state={state} />
         </div>
       </div>
 
-      {/* Right: minimap */}
-      <div className="bg-black/50 rounded-lg p-2">
-        <Minimap state={state} />
-      </div>
-    </div>
+      {/* Bottom-centre: boss health bar (only when fighting boss) */}
+      {state.bossHealth && <BossHealthBar bossHealth={state.bossHealth} />}
+    </>
   );
 }

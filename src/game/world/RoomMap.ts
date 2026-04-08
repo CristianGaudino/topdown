@@ -104,9 +104,10 @@ export class RoomMap {
         room.spawnEnemies(plan.enemyCount, plan.enemyType, plan.isBoss);
         this.totalEnemies += room.enemyCount;
       }
-      if (plan.role === 'start' || plan.role === 'loot') {
+      if (plan.role === 'start') {
         room.spawnInitialPickups();
       }
+      // loot rooms: upgrade overlay is shown on first visit (handled by Game.ts)
     }
 
     const startPlan = plans.find(p => p.role === 'start')!;

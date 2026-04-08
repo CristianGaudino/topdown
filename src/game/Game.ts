@@ -1,12 +1,12 @@
 import { GameLoop } from './engine/GameLoop';
 import { InputManager } from './engine/InputManager';
-import { Hero } from './objects/Hero';
+import { Hero, HeroUpgradeType } from './objects/Hero';
 import { RoomMap } from './world/RoomMap';
 import { GunType } from './objects/Gun';
 import { PickupType } from './objects/Pickup';
 import { RoomRole } from './world/Room';
 
-export type GameStatus = 'playing' | 'paused' | 'won' | 'lost';
+export type GameStatus = 'playing' | 'paused' | 'won' | 'lost' | 'upgrade';
 
 export interface RunStats {
   kills: number;
@@ -15,6 +15,13 @@ export interface RunStats {
   gunsPickedUp: number;
   shotsFired: number;
   shotsHit: number;
+}
+
+export interface UpgradeOption {
+  type: HeroUpgradeType;
+  label: string;
+  description: string;
+  icon: string;
 }
 
 export interface GameState {
@@ -28,9 +35,24 @@ export interface GameState {
   mapRooms: { row: number; col: number; isCurrent: boolean; hasEnemies: boolean; role: RoomRole }[];
   dashCooldownFraction: number;
   stats: RunStats;
+  pendingUpgrades: UpgradeOption[] | null;
+  bossHealth: { current: number; max: number; phase: 1 | 2 | 3 } | null;
 }
 
 const HEAL_AMOUNT = 30;
+
+const UPGRADE_POOL: UpgradeOption[] = [
+  { type: 'maxHealth',    label: 'Reinforced',    description: '+25 max HP, restored for 25', icon: '❤' },
+  { type: 'dashCooldown', label: 'Swift Feet',     description: 'Dash cooldown −30%',          icon: '⚡' },
+  { type: 'damage',       label: 'High Caliber',   description: '+25% bullet damage',          icon: '💥' },
+  { type: 'fireRate',     label: 'Rapid Fire',      description: '+20% fire rate',              icon: '🔫' },
+  { type: 'moveSpeed',    label: 'Adrenaline',      description: '+0.5 movement speed',         icon: '👟' },
+];
+
+function generateUpgrades(): UpgradeOption[] {
+  const pool = [...UPGRADE_POOL].sort(() => Math.random() - 0.5);
+  return pool.slice(0, 3);
+}
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -43,26 +65,27 @@ export class Game {
   private onStateChange: (state: GameState) => void;
   private stats: RunStats = { kills: 0, damageTaken: 0, healthPickedUp: 0, gunsPickedUp: 0, shotsFired: 0, shotsHit: 0 };
   private shakeIntensity = 0;
-  private shakeDuration = 0;
-  private flashTimer = 0;
+  private shakeDuration  = 0;
+  private flashTimer     = 0;
+  private pendingUpgrades: UpgradeOption[] | null = null;
 
   constructor(canvas: HTMLCanvasElement, onStateChange: (state: GameState) => void) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d')!;
+    this.ctx    = canvas.getContext('2d')!;
     this.onStateChange = onStateChange;
 
     this.map = new RoomMap(canvas.width, canvas.height, {
-      onEnemyKilled: (x, y, gunType, isBoss) => this.handleEnemyKilled(x, y, gunType, isBoss),
-      onPlayerDamaged: (dmg, x, y) => this.handlePlayerDamaged(dmg, x, y),
-      onPlayerKilled: () => this.handlePlayerDied(),
-      onPlayerTouched: () => {},
-      onPickupCollected: (type, gunType) => this.handlePickupCollected(type, gunType),
+      onEnemyKilled:     (x, y, gunType, isBoss) => this.handleEnemyKilled(x, y, gunType, isBoss),
+      onPlayerDamaged:   (dmg, x, y)             => this.handlePlayerDamaged(dmg, x, y),
+      onPlayerKilled:    ()                        => this.handlePlayerDied(),
+      onPlayerTouched:   ()                        => {},
+      onPickupCollected: (type, gunType)           => this.handlePickupCollected(type, gunType),
     });
 
     this.hero = new Hero(80, canvas.height / 2 - 14);
     this.wireHeroToRoom();
     this.map.currentRoom.heroPresent = this.hero;
-    this.map.currentRoom.visited = true;
+    this.map.currentRoom.visited     = true;
 
     this.input = new InputManager(canvas);
     this.input.setPauseCallback(() => this.togglePause());
@@ -81,21 +104,22 @@ export class Game {
 
   restart() {
     this.stop();
-    this.status = 'playing';
-    this.stats = { kills: 0, damageTaken: 0, healthPickedUp: 0, gunsPickedUp: 0, shotsFired: 0, shotsHit: 0 };
+    this.status         = 'playing';
+    this.pendingUpgrades = null;
+    this.stats           = { kills: 0, damageTaken: 0, healthPickedUp: 0, gunsPickedUp: 0, shotsFired: 0, shotsHit: 0 };
 
     this.map = new RoomMap(this.canvas.width, this.canvas.height, {
-      onEnemyKilled: (x, y, gunType, isBoss) => this.handleEnemyKilled(x, y, gunType, isBoss),
-      onPlayerDamaged: (dmg, x, y) => this.handlePlayerDamaged(dmg, x, y),
-      onPlayerKilled: () => this.handlePlayerDied(),
-      onPlayerTouched: () => {},
-      onPickupCollected: (type, gunType) => this.handlePickupCollected(type, gunType),
+      onEnemyKilled:     (x, y, gunType, isBoss) => this.handleEnemyKilled(x, y, gunType, isBoss),
+      onPlayerDamaged:   (dmg, x, y)             => this.handlePlayerDamaged(dmg, x, y),
+      onPlayerKilled:    ()                        => this.handlePlayerDied(),
+      onPlayerTouched:   ()                        => {},
+      onPickupCollected: (type, gunType)           => this.handlePickupCollected(type, gunType),
     });
 
     this.hero = new Hero(80, this.canvas.height / 2 - 14);
     this.wireHeroToRoom();
     this.map.currentRoom.heroPresent = this.hero;
-    this.map.currentRoom.visited = true;
+    this.map.currentRoom.visited     = true;
     this.flashTimer = 0;
 
     this.input = new InputManager(this.canvas);
@@ -112,6 +136,17 @@ export class Game {
     }
   }
 
+  /** Called by GameCanvas when player clicks an upgrade card in the loot room overlay. */
+  selectUpgrade(index: number) {
+    if (this.status !== 'upgrade' || !this.pendingUpgrades) return;
+    const chosen = this.pendingUpgrades[index];
+    if (!chosen) return;
+    this.hero.applyUpgrade(chosen.type);
+    this.pendingUpgrades = null;
+    this.status = 'playing';
+    this.emitState();
+  }
+
   private togglePause() {
     if (this.status === 'playing') {
       this.status = 'paused';
@@ -124,7 +159,7 @@ export class Game {
 
   private wireHeroToRoom() {
     const room = this.map.currentRoom;
-    this.hero.getStatics = () => room.staticColliders;
+    this.hero.getStatics      = () => room.staticColliders;
     this.hero.getEnemyTargets = () =>
       room.enemies.map(e => ({
         rect: e,
@@ -135,14 +170,14 @@ export class Game {
           if (e.health <= 0) e.ctx.onKilled();
         },
       }));
-    this.hero.spawnBullet = b => { this.stats.shotsFired++; room.bullets.push(b); };
+    this.hero.spawnBullet    = b => { this.stats.shotsFired++; room.bullets.push(b); };
     this.hero.spawnParticles = p => room.particles.push(...p);
   }
 
   private tick() {
     if (this.status !== 'playing') return;
 
-    const room = this.map.currentRoom;
+    const room  = this.map.currentRoom;
     const input = this.input.get();
 
     this.hero.update(input);
@@ -154,43 +189,38 @@ export class Game {
   }
 
   private checkRoomTransition() {
-    const h = this.hero;
-    const cw = this.canvas.width;
-    const ch = this.canvas.height;
-    const room = this.map.currentRoom;
+    const h      = this.hero;
+    const cw     = this.canvas.width;
+    const ch     = this.canvas.height;
+    const room   = this.map.currentRoom;
     const BORDER = 30;
 
     let nextRoom = null;
     let newX = h.x;
     let newY = h.y;
 
-    if (h.x < 0 && room.leftNeighbour) {
-      nextRoom = room.leftNeighbour;
-      newX = cw - BORDER - h.width - 2;
-      newY = h.y;
-    } else if (h.x + h.width > cw && room.rightNeighbour) {
-      nextRoom = room.rightNeighbour;
-      newX = BORDER + 2;
-      newY = h.y;
-    } else if (h.y < 0 && room.upNeighbour) {
-      nextRoom = room.upNeighbour;
-      newX = h.x;
-      newY = ch - BORDER - h.height - 2;
-    } else if (h.y + h.height > ch && room.downNeighbour) {
-      nextRoom = room.downNeighbour;
-      newX = h.x;
-      newY = BORDER + 2;
-    }
+    if      (h.x < 0               && room.leftNeighbour)  { nextRoom = room.leftNeighbour;  newX = cw - BORDER - h.width - 2; }
+    else if (h.x + h.width > cw    && room.rightNeighbour) { nextRoom = room.rightNeighbour; newX = BORDER + 2; }
+    else if (h.y < 0               && room.upNeighbour)    { nextRoom = room.upNeighbour;    newY = ch - BORDER - h.height - 2; }
+    else if (h.y + h.height > ch   && room.downNeighbour)  { nextRoom = room.downNeighbour;  newY = BORDER + 2; }
 
     if (nextRoom) {
+      const isFirstVisit = !nextRoom.visited;
       room.heroPresent = null;
       this.map.currentRoom = nextRoom;
       h.x = newX;
       h.y = newY;
       nextRoom.heroPresent = h;
-      nextRoom.visited = true;
-      this.flashTimer = 10;
+      nextRoom.visited     = true;
+      this.flashTimer      = 10;
       this.wireHeroToRoom();
+
+      // Show upgrade picker on first visit to a loot room
+      if (isFirstVisit && nextRoom.role === 'loot') {
+        this.pendingUpgrades = generateUpgrades();
+        this.status          = 'upgrade';
+        this.emitState();
+      }
     }
   }
 
@@ -207,9 +237,8 @@ export class Game {
   private handlePlayerDamaged(dmg: number, x: number, y: number) {
     this.stats.damageTaken += dmg;
     this.map.currentRoom.spawnDamageNumber(x, y, dmg, false);
-    // Shake intensity scales with damage — boss touch hits harder
     this.shakeIntensity = Math.min(10, 3 + dmg * 0.15);
-    this.shakeDuration = Math.round(8 + dmg * 0.2);
+    this.shakeDuration  = Math.round(8 + dmg * 0.2);
   }
 
   private handlePlayerDied() {
@@ -236,10 +265,9 @@ export class Game {
   }
 
   private draw() {
-    const ctx = this.ctx;
+    const ctx  = this.ctx;
     const room = this.map.currentRoom;
 
-    // Screen shake
     let shakeX = 0;
     let shakeY = 0;
     if (this.shakeDuration > 0) {
@@ -253,18 +281,18 @@ export class Game {
     ctx.translate(shakeX, shakeY);
 
     ctx.fillStyle = '#0e7c6b';
-    ctx.fillRect(-10, -10, this.canvas.width + 20, this.canvas.height + 20); // slightly oversized to cover shake edges
+    ctx.fillRect(-10, -10, this.canvas.width + 20, this.canvas.height + 20);
 
     room.draw(ctx);
     this.hero.draw(ctx);
 
-    // Low health vignette — kicks in below 40% HP, pulses
+    // Low-health vignette
     const healthPct = this.hero.health / this.hero.maxHealth;
     if (healthPct < 0.4) {
       const intensity = (0.4 - healthPct) / 0.4;
-      const pulse = (Math.sin(Date.now() * 0.004) + 1) / 2;
-      const alpha = intensity * (0.15 + pulse * 0.25);
-      const grad = ctx.createRadialGradient(
+      const pulse     = (Math.sin(Date.now() * 0.004) + 1) / 2;
+      const alpha     = intensity * (0.15 + pulse * 0.25);
+      const grad      = ctx.createRadialGradient(
         this.canvas.width / 2, this.canvas.height / 2, this.canvas.height * 0.2,
         this.canvas.width / 2, this.canvas.height / 2, this.canvas.height * 0.8,
       );
@@ -281,20 +309,24 @@ export class Game {
       this.flashTimer--;
     }
 
-    ctx.restore(); // end shake transform
+    ctx.restore();
   }
 
   private emitState() {
     const rooms = this.map.getRooms();
-    const cr = this.map.currentRoom;
+    const cr    = this.map.currentRoom;
+
+    // Find boss enemy in current room (for boss health bar)
+    const bossEnemy = cr.enemies.find(e => e.isBoss) ?? null;
+
     this.onStateChange({
-      heroHealth: Math.max(0, this.hero.health),
-      heroMaxHealth: this.hero.maxHealth,
-      heroGun: this.hero.currentGunType,
+      heroHealth:       Math.max(0, this.hero.health),
+      heroMaxHealth:    this.hero.maxHealth,
+      heroGun:          this.hero.currentGunType,
       enemiesRemaining: Math.max(0, this.map.totalEnemies),
-      status: this.status,
-      currentRoomRow: cr.row,
-      currentRoomCol: cr.col,
+      status:           this.status,
+      currentRoomRow:   cr.row,
+      currentRoomCol:   cr.col,
       mapRooms: rooms
         .filter(({ room }) => room.visited)
         .map(({ room, row, col }) => ({
@@ -305,7 +337,11 @@ export class Game {
           role:       room.role,
         })),
       dashCooldownFraction: this.hero.dashCooldownFraction,
-      stats: { ...this.stats },
+      stats:           { ...this.stats },
+      pendingUpgrades: this.pendingUpgrades,
+      bossHealth:      bossEnemy
+        ? { current: bossEnemy.health, max: bossEnemy.profile.maxHealth, phase: bossEnemy.bossPhase }
+        : null,
     });
   }
 }

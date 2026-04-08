@@ -8,17 +8,19 @@ interface GunStats {
   width: number;
   height: number;
   speed: number;
+  enemySpeed: number;   // slower so the player can dodge
   damage: number;
   cooldown: number; // frames
   color: string | string[];
+  enemyColor: string;   // brighter, distinct colour for enemy bullets
 }
 
 const GUN_STATS: Record<GunType, GunStats> = {
-  rifle:     { width: 6, height: 6, speed: 8,  damage: 8,  cooldown: 40,  color: '#003580' },
-  smg:       { width: 5, height: 5, speed: 8,  damage: 4,  cooldown: 15,  color: '#27ae60' },
-  sniper:    { width: 6, height: 6, speed: 15, damage: 25, cooldown: 90,  color: '#7f4f24' },
-  shotgun:   { width: 6, height: 6, speed: 4,  damage: 15, cooldown: 45,  color: '#c0392b' },
-  sprinkler: { width: 5, height: 5, speed: 8,  damage: 3,  cooldown: 2,   color: [] },
+  rifle:     { width: 6, height: 6, speed: 8,  enemySpeed: 4.5, damage: 8,  cooldown: 40, color: '#003580', enemyColor: '#ff5555' },
+  smg:       { width: 5, height: 5, speed: 8,  enemySpeed: 4.0, damage: 4,  cooldown: 15, color: '#27ae60', enemyColor: '#55ff99' },
+  sniper:    { width: 8, height: 4, speed: 15, enemySpeed: 7.0, damage: 25, cooldown: 90, color: '#7f4f24', enemyColor: '#ffcc44' },
+  shotgun:   { width: 6, height: 6, speed: 4,  enemySpeed: 2.5, damage: 15, cooldown: 45, color: '#c0392b', enemyColor: '#ff8855' },
+  sprinkler: { width: 5, height: 5, speed: 8,  enemySpeed: 4.5, damage: 3,  cooldown: 2,  color: [],        enemyColor: '' },
 };
 
 // Rainbow palette for sprinkler boss
@@ -36,7 +38,7 @@ export class Gun {
 
   // Sprinkler state
   private rainbowIndex = 0;
-  private sprinklerAngle = 0; // degrees, 4 guns rotating
+  private sprinklerAngle = 0;
 
   constructor(type: GunType, source: BulletSource) {
     this.type = type;
@@ -60,32 +62,41 @@ export class Gun {
     getEnemyTargets: () => Array<{ rect: Rect; onHit: (dmg: number, x: number, y: number) => void }>,
     getPlayerTarget: () => Array<{ rect: Rect; onHit: (dmg: number, x: number, y: number) => void }>,
     spawnParticles: (p: Particle[]) => void,
+    damageMultiplier = 1,
+    cooldownMultiplier = 1,
   ): Bullet[] {
     if (!this.canFire()) return [];
 
-    const stats = GUN_STATS[this.type];
+    const stats    = GUN_STATS[this.type];
+    const isEnemy  = this.source === 'enemy';
+    const speed    = isEnemy ? stats.enemySpeed : stats.speed;
+    // Enemy bullets are slightly larger so they're easier to see
+    const bw = stats.width  + (isEnemy ? 2 : 0);
+    const bh = stats.height + (isEnemy ? 2 : 0);
+
     const bullets: Bullet[] = [];
 
     const make = (tx: number, ty: number, color: string) =>
       new Bullet(
-        fromX, fromY, stats.width, stats.height,
-        tx, ty, stats.speed, stats.damage, color,
+        fromX, fromY, bw, bh,
+        tx, ty, speed, stats.damage * damageMultiplier, color,
         this.source, getStatics, getEnemyTargets, getPlayerTarget, spawnParticles,
       );
 
+    const playerColor = stats.color as string;
+    const baseColor   = isEnemy ? stats.enemyColor : playerColor;
+
     if (this.type === 'shotgun') {
-      // 3 pellets — main + two spread around target
-      const dx = targetX - fromX;
-      const dy = targetY - fromY;
+      const dx  = targetX - fromX;
+      const dy  = targetY - fromY;
       const len = Math.sqrt(dx * dx + dy * dy) || 1;
-      const px = -dy / len;
-      const py = dx / len;
+      const px  = -dy / len;
+      const py  =  dx / len;
       const spread = 60;
-      bullets.push(make(targetX, targetY, stats.color as string));
-      bullets.push(make(targetX + px * spread, targetY + py * spread, stats.color as string));
-      bullets.push(make(targetX - px * spread, targetY - py * spread, stats.color as string));
+      bullets.push(make(targetX,              targetY,              baseColor));
+      bullets.push(make(targetX + px * spread, targetY + py * spread, baseColor));
+      bullets.push(make(targetX - px * spread, targetY - py * spread, baseColor));
     } else if (this.type === 'sprinkler') {
-      // 4 bullets rotating in a spiral pattern
       const color = RAINBOW[this.rainbowIndex % RAINBOW.length];
       this.rainbowIndex++;
       for (let i = 0; i < 4; i++) {
@@ -95,10 +106,10 @@ export class Gun {
       }
       this.sprinklerAngle = (this.sprinklerAngle + 3) % 360;
     } else {
-      bullets.push(make(targetX, targetY, stats.color as string));
+      bullets.push(make(targetX, targetY, baseColor));
     }
 
-    this.cooldownTimer = GUN_STATS[this.type].cooldown;
+    this.cooldownTimer = Math.round(GUN_STATS[this.type].cooldown * cooldownMultiplier);
     return bullets;
   }
 }

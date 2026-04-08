@@ -30,18 +30,22 @@ export class Particle extends Rectangle {
     color: string,
     lifetime: number,
     speed: number,
-    direction?: ParticleDirection,
+    direction?: ParticleDirection | { angle: number },
   ) {
     super(x, y, width, height, color);
     this.lifetime = lifetime;
     this.speed = speed;
 
     if (direction) {
-      const [dx, dy] = DIRECTION_VECTORS[direction];
-      this.vx = dx * speed;
-      this.vy = dy * speed;
+      if (typeof direction === 'string') {
+        const [dx, dy] = DIRECTION_VECTORS[direction];
+        this.vx = dx * speed;
+        this.vy = dy * speed;
+      } else {
+        this.vx = Math.cos(direction.angle) * speed;
+        this.vy = Math.sin(direction.angle) * speed;
+      }
     } else {
-      // Random spread
       const angle = Math.random() * Math.PI * 2;
       this.vx = Math.cos(angle) * speed;
       this.vy = Math.sin(angle) * speed;
@@ -72,5 +76,15 @@ export class Particle extends Rectangle {
     return directions.map(
       dir => new Particle(x, y, 2, 3, 'yellow', 20, Math.random() * 10, dir),
     );
+  }
+
+  static muzzleFlash(x: number, y: number, angle: number): Particle[] {
+    const out: Particle[] = [];
+    for (let i = 0; i < 3; i++) {
+      const spread = (Math.random() - 0.5) * 0.8;
+      const speed  = 2 + Math.random() * 3;
+      out.push(new Particle(x - 2, y - 2, 4, 4, '#ffff88', 5 + Math.random() * 3, speed, { angle: angle + spread }));
+    }
+    return out;
   }
 }

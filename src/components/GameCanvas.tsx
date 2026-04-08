@@ -89,6 +89,7 @@ export default function GameCanvas() {
         <MobileControls
           heroX={gameState.heroX}
           heroY={gameState.heroY}
+          visible={gameState.status === 'playing'}
           onVirtualInput={handleVirtualInput}
           onPause={handlePause}
         />

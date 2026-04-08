@@ -46,10 +46,10 @@ export interface EnemyContext {
 }
 
 export class Enemy extends Entity {
-  readonly isBoss:   boolean;
-  readonly gunType:  GunType;
-  readonly profile:  EnemyProfile;
-  private gun:       Gun;
+  readonly isBoss:  boolean;
+  readonly gunType: GunType;
+  readonly profile: EnemyProfile;
+  private gun:      Gun;
   private touchCooldown = 0;
 
   // Velocity-based movement
@@ -63,18 +63,15 @@ export class Enemy extends Entity {
   private prevStuckX  = 0;
   private prevStuckY  = 0;
 
-  // Speed multiplier (used for boss phase scaling)
-  private speedMultiplier = 1.0;
-
   // Last known hero position (for draw rotation)
   private lastHeroX = 0;
   private lastHeroY = 0;
 
   // ── Boss-specific state ────────────────────────────────────────────────────
   private bossFireTimer      = 90;
-  private bossBurstTimer     = 0;
+  private bossBurstTimer     = 120; // first burst fires 2s after entering phase 2
   private bossChargeTimer    = 0;
-  private bossChargeCooldown = 0;
+  private bossChargeCooldown = 180; // first charge fires 3s after entering phase 2
   private bossChargeVx       = 0;
   private bossChargeVy       = 0;
   private bossPaletteIndex   = 0;
@@ -85,11 +82,11 @@ export class Enemy extends Entity {
   constructor(x: number, y: number, gunType: GunType, isBoss = false) {
     const profile = PROFILES[gunType];
     super(x, y, profile.width, profile.height, profile.color, profile.maxHealth);
-    this.hostile  = true;
-    this.isBoss   = isBoss;
-    this.gunType  = gunType;
-    this.profile  = profile;
-    this.gun      = new Gun(gunType, 'enemy');
+    this.hostile = true;
+    this.isBoss  = isBoss;
+    this.gunType = gunType;
+    this.profile = profile;
+    this.gun     = new Gun(gunType, 'enemy');
   }
 
   get bossPhase(): 1 | 2 | 3 {
@@ -121,25 +118,55 @@ export class Enemy extends Entity {
     if (this.isBoss) {
       this.updateBoss(heroX, heroY);
     } else {
-      const bullets = this.gun.fire(
-        this.middle.x, this.middle.y,
-        heroX, heroY,
-        this.ctx.getStatics,
-        () => [],
-        this.ctx.getPlayerTarget,
-        this.ctx.spawnParticles,
-      );
-      bullets.forEach(b => this.ctx.spawnBullet(b));
+      // Only fire when there is a clear line of sight to the hero
+      if (this.hasLineOfSight(heroX, heroY)) {
+        const bullets = this.gun.fire(
+          this.middle.x, this.middle.y,
+          heroX, heroY,
+          this.ctx.getStatics,
+          () => [],
+          this.ctx.getPlayerTarget,
+          this.ctx.spawnParticles,
+        );
+        bullets.forEach(b => this.ctx.spawnBullet(b));
+      }
       this.steer(heroX, heroY);
     }
   }
 
-  // ── Boss update ─────────────────────────────────────────────────────────────
+  // ── Line-of-sight test ───────────────────────────────────────────────────────
+  // Samples points along the ray from this enemy centre to the hero.
+  // Returns false if any static collider interrupts the path.
+
+  private hasLineOfSight(toX: number, toY: number): boolean {
+    const statics = this.ctx.getStatics();
+    const cx = this.middle.x;
+    const cy = this.middle.y;
+    const dx = toX - cx;
+    const dy = toY - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 5) return true;
+
+    const steps = Math.ceil(dist / 18); // probe every ~18 px
+    for (let i = 1; i < steps; i++) {
+      const t  = i / steps;
+      const px = cx + dx * t;
+      const py = cy + dy * t;
+      for (const s of statics) {
+        if (px > s.x && px < s.x + s.width && py > s.y && py < s.y + s.height) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  // ── Boss update ──────────────────────────────────────────────────────────────
 
   private updateBoss(heroX: number, heroY: number) {
     const phase = this.bossPhase;
 
-    // ── Firing ────────────────────────────────────────────────────────────────
+    // ── Firing (radial spread — no LOS needed) ────────────────────────────────
     this.bossFireTimer--;
     if (this.bossFireTimer <= 0) {
       const cd = phase === 1 ? 90 : phase === 2 ? 60 : 40;
@@ -147,7 +174,7 @@ export class Enemy extends Entity {
       this.fireBossSpread(phase === 3 ? 8 : 4);
     }
 
-    // Phase 2+: extra burst salvo
+    // Phase 2+: extra 8-way burst salvo
     if (phase >= 2) {
       this.bossBurstTimer--;
       if (this.bossBurstTimer <= 0) {
@@ -170,21 +197,58 @@ export class Enemy extends Entity {
       if (this.bossChargeCooldown > 0) {
         this.bossChargeCooldown--;
       } else {
-        // Start charge toward hero
-        const dx = heroX - this.middle.x;
-        const dy = heroY - this.middle.y;
-        const d  = Math.sqrt(dx * dx + dy * dy) || 1;
+        // Launch charge toward current hero position
+        const dx  = heroX - this.middle.x;
+        const dy  = heroY - this.middle.y;
+        const d   = Math.sqrt(dx * dx + dy * dy) || 1;
         const spd = phase === 2 ? 5 : 7;
-        this.bossChargeVx   = (dx / d) * spd;
-        this.bossChargeVy   = (dy / d) * spd;
+        this.bossChargeVx    = (dx / d) * spd;
+        this.bossChargeVy    = (dy / d) * spd;
         this.bossChargeTimer = 28;
       }
-      this.speedMultiplier = phase === 2 ? 1.4 : 1.8;
-      this.steer(heroX, heroY);
+      this.steerBoss(heroX, heroY, phase);
     } else {
-      this.speedMultiplier = 1.0;
-      this.steer(heroX, heroY);
+      this.steerBoss(heroX, heroY, phase);
     }
+  }
+
+  // Dedicated boss orbit — simpler than steer(), no wander or separation clutter.
+  private steerBoss(heroX: number, heroY: number, phase: 1 | 2 | 3) {
+    const statics = this.ctx.getStatics();
+    const cx = this.middle.x;
+    const cy = this.middle.y;
+    const dx = heroX - cx;
+    const dy = heroY - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+
+    // Speed per phase
+    const speed = phase === 1 ? 1.2 : phase === 2 ? 1.8 : 2.4;
+    const { preferredRange } = this.profile;
+
+    // Tangential: strafe around hero
+    const tanX = (-dy / dist) * this.orbitSign;
+    const tanY = ( dx / dist) * this.orbitSign;
+
+    // Radial: smooth approach/retreat to maintain range (tanh gives natural feel)
+    const rangeError = dist - preferredRange;
+    const radialMag  = Math.tanh(rangeError / 80); // -1..+1
+    const radX = (dx / dist) * radialMag;
+    const radY = (dy / dist) * radialMag;
+
+    // 70% strafe, 30% range correction
+    const fx = (tanX * 0.7 + radX * 0.3) * speed;
+    const fy = (tanY * 0.7 + radY * 0.3) * speed;
+
+    this.vx += (fx - this.vx) * 0.07;
+    this.vy += (fy - this.vy) * 0.07;
+
+    // Wall slide — flip orbit direction on collision so boss doesn't grind a wall
+    const colX = this.wouldCollide(this.vx, 0, statics);
+    const colY = this.wouldCollide(0, this.vy, statics);
+
+    if (colX || colY) this.orbitSign *= -1;
+    if (colX) { this.vx = 0; } else { this.x += this.vx; }
+    if (colY) { this.vy = 0; } else { this.y += this.vy; }
   }
 
   private fireBossSpread(count: number) {
@@ -212,13 +276,12 @@ export class Enemy extends Entity {
     }
   }
 
-  // ── Steering ────────────────────────────────────────────────────────────────
+  // ── Steering (regular enemies) ───────────────────────────────────────────────
 
   private steer(heroX: number, heroY: number) {
     const statics = this.ctx.getStatics();
     const enemies = this.ctx.getEnemies();
-    const { speed: baseSpeed, preferredRange, turnRate, wanderStrength, behavior } = this.profile;
-    const speed = baseSpeed * this.speedMultiplier;
+    const { speed, preferredRange, turnRate, wanderStrength, behavior } = this.profile;
     const cx = this.middle.x;
     const cy = this.middle.y;
 
@@ -231,14 +294,14 @@ export class Enemy extends Entity {
     let seekY = 0;
 
     if (behavior === 'orbiter') {
-      const tangentX  = (-dy / dist) * this.orbitSign;
-      const tangentY  = ( dx / dist) * this.orbitSign;
-      const rangeErr  = dist - preferredRange;
-      const radialStr = Math.min(Math.abs(rangeErr) / preferredRange, 1);
-      const radialX   = (dx / dist) * Math.sign(rangeErr) * radialStr;
-      const radialY   = (dy / dist) * Math.sign(rangeErr) * radialStr;
-      seekX = (tangentX * 0.78 + radialX * 0.22) * speed;
-      seekY = (tangentY * 0.78 + radialY * 0.22) * speed;
+      const tanX     = (-dy / dist) * this.orbitSign;
+      const tanY     = ( dx / dist) * this.orbitSign;
+      const rangeErr = dist - preferredRange;
+      const rStr     = Math.min(Math.abs(rangeErr) / preferredRange, 1);
+      const radX     = (dx / dist) * Math.sign(rangeErr) * rStr;
+      const radY     = (dy / dist) * Math.sign(rangeErr) * rStr;
+      seekX = (tanX * 0.78 + radX * 0.22) * speed;
+      seekY = (tanY * 0.78 + radY * 0.22) * speed;
 
     } else if (behavior === 'ranger') {
       if (dist < preferredRange * 0.75) {
@@ -250,13 +313,11 @@ export class Enemy extends Entity {
         seekX = (dx / dist) * speed;
         seekY = (dy / dist) * speed;
       } else {
-        const strafeX = -dy / dist;
-        const strafeY =  dx / dist;
-        seekX = strafeX * speed * 0.85;
-        seekY = strafeY * speed * 0.85;
+        seekX = (-dy / dist) * speed * 0.85;
+        seekY = ( dx / dist) * speed * 0.85;
       }
 
-    } else {
+    } else { // seeker / charger
       if (dist > preferredRange) {
         seekX = (dx / dist) * speed;
         seekY = (dy / dist) * speed;
@@ -283,16 +344,26 @@ export class Enemy extends Entity {
       }
     }
 
-    // ── 3. Wall avoidance whiskers ─────────────────────────────────────────────
+    // ── 3. Wall-avoidance whiskers ─────────────────────────────────────────────
+    // When velocity is near-zero (just zeroed by a wall) the whisker forward
+    // direction would be (0,0), making wall avoidance blind.  Fall back to the
+    // seek direction so the enemy can sense the wall it's pressed against.
     let wallX = 0;
     let wallY = 0;
-    const curLen = Math.sqrt(this.vx * this.vx + this.vy * this.vy) || 1;
-    const fdx = this.vx / curLen;
-    const fdy = this.vy / curLen;
+    const velLen = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+    let fdx: number, fdy: number;
+    if (velLen < 0.1) {
+      const slen = Math.sqrt(seekX * seekX + seekY * seekY) || 1;
+      fdx = seekX / slen;
+      fdy = seekY / slen;
+    } else {
+      fdx = this.vx / velLen;
+      fdy = this.vy / velLen;
+    }
 
     const whiskers = [
-      { nx: fdx,                        ny: fdy,                        w: 3.0 },
-      { nx: fdx * 0.707 - fdy * 0.707,  ny: fdx * 0.707 + fdy * 0.707, w: 1.5 },
+      { nx: fdx,                        ny: fdy,                         w: 3.0 },
+      { nx: fdx * 0.707 - fdy * 0.707,  ny: fdx * 0.707 + fdy * 0.707,  w: 1.5 },
       { nx: fdx * 0.707 + fdy * 0.707,  ny: -fdx * 0.707 + fdy * 0.707, w: 1.5 },
     ];
 
@@ -308,9 +379,8 @@ export class Enemy extends Entity {
             const wx = cx - (s.x + s.width  / 2);
             const wy = cy - (s.y + s.height / 2);
             const wd = Math.sqrt(wx * wx + wy * wy) || 1;
-            const sw = (4 - step);
-            wallX += (wx / wd) * sw * wh.w * speed * 1.8;
-            wallY += (wy / wd) * sw * wh.w * speed * 1.8;
+            wallX += (wx / wd) * (4 - step) * wh.w * speed * 1.8;
+            wallY += (wy / wd) * (4 - step) * wh.w * speed * 1.8;
           }
         }
       }
@@ -321,7 +391,7 @@ export class Enemy extends Entity {
     const wanderX = Math.cos(this.wanderAngle) * wanderStrength * speed;
     const wanderY = Math.sin(this.wanderAngle) * wanderStrength * speed;
 
-    // ── 5. Combine ────────────────────────────────────────────────────────────
+    // ── 5. Combine and smooth ──────────────────────────────────────────────────
     const fx   = seekX + sepX + wallX + wanderX;
     const fy   = seekY + sepY + wallY + wanderY;
     const flen = Math.sqrt(fx * fx + fy * fy) || 1;
@@ -331,14 +401,16 @@ export class Enemy extends Entity {
     this.vx += (targetVx - this.vx) * turnRate;
     this.vy += (targetVy - this.vy) * turnRate;
 
-    // ── 6. Stuck detection — escape kick ──────────────────────────────────────
+    // ── 6. Stuck detection — directional escape kick ───────────────────────────
     const moved = Math.hypot(this.x - this.prevStuckX, this.y - this.prevStuckY);
     if (moved < 0.25 && Math.hypot(this.vx, this.vy) > 0.2) {
       this.stuckFrames++;
       if (this.stuckFrames > 22) {
-        const kickAngle = Math.random() * Math.PI * 2;
-        this.vx = Math.cos(kickAngle) * speed * 3;
-        this.vy = Math.sin(kickAngle) * speed * 3;
+        // Kick toward hero (most likely to be a valid open direction)
+        // with a small random offset so they don't deadlock again
+        const angle = Math.atan2(dy, dx) + (Math.random() - 0.5) * 1.2;
+        this.vx = Math.cos(angle) * speed * 3;
+        this.vy = Math.sin(angle) * speed * 3;
         this.stuckFrames = 0;
       }
     } else {
@@ -349,7 +421,7 @@ export class Enemy extends Entity {
 
     // ── 7. Move with wall sliding ──────────────────────────────────────────────
     if (this.wouldCollide(this.vx, 0, statics)) {
-      this.vx = 0; // zero out so wander can redirect next frame
+      this.vx = 0;
     } else {
       this.x += this.vx;
     }
@@ -379,18 +451,17 @@ export class Enemy extends Entity {
     const hw = this.width  / 2;
     const hh = this.height / 2;
 
-    // Damage flash
     const flashing = this.damageFlashTimer > 0;
     if (flashing) this.damageFlashTimer--;
 
-    // Health bar (unrotated)
+    // Health bar (axis-aligned, not rotated)
     const pct = Math.max(0, this.health / this.profile.maxHealth);
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillRect(this.x, this.y - 7, this.width, 4);
     ctx.fillStyle = pct > 0.5 ? '#27ae60' : pct > 0.25 ? '#f39c12' : '#e74c3c';
     ctx.fillRect(this.x, this.y - 7, this.width * pct, 4);
 
-    // Boss glow ring (unrotated)
+    // Boss glow ring (axis-aligned)
     if (this.isBoss) {
       ctx.save();
       ctx.strokeStyle = this.bossPhase === 3 ? '#ff4444' : this.bossPhase === 2 ? '#ff8800' : '#f39c12';
@@ -409,34 +480,27 @@ export class Enemy extends Entity {
 
     switch (this.gunType) {
       case 'smg': {
-        // Small rounded circle-ish body
         ctx.beginPath();
         ctx.arc(0, 0, hw, 0, Math.PI * 2);
         ctx.fill();
-        // Forward nub
         ctx.fillStyle = flashing ? '#ff9999' : '#aaffcc';
         ctx.fillRect(hw - 3, -3, 7, 6);
         break;
       }
       case 'sniper': {
-        // Tall thin body
         ctx.fillRect(-hw, -hh, this.width, this.height);
-        // Long barrel along facing direction
         ctx.fillStyle = flashing ? '#ff9999' : '#c8a97a';
         ctx.fillRect(hw - 2, -2, 14, 4);
         break;
       }
       case 'shotgun': {
-        // Wide squat body
         ctx.fillRect(-hw, -hh, this.width, this.height);
-        // Double barrel dots
         ctx.fillStyle = flashing ? '#ff9999' : '#ffaaaa';
         ctx.fillRect(hw - 2, -hh + 4, 8, 5);
         ctx.fillRect(hw - 2,  hh - 9, 8, 5);
         break;
       }
       case 'sprinkler': {
-        // Boss: octagonal body
         ctx.beginPath();
         for (let i = 0; i < 8; i++) {
           const a = (i / 8) * Math.PI * 2 - Math.PI / 8;
@@ -446,8 +510,7 @@ export class Enemy extends Entity {
         }
         ctx.closePath();
         ctx.fill();
-        // Phase-coloured spinning indicator arms
-        const armColor = BOSS_PALETTE[Math.floor(Date.now() / 150) % BOSS_PALETTE.length];
+        const armColor  = BOSS_PALETTE[Math.floor(Date.now() / 150) % BOSS_PALETTE.length];
         ctx.strokeStyle = armColor;
         ctx.lineWidth   = 3;
         const spinAngle = (Date.now() * 0.003) % (Math.PI * 2);
@@ -460,21 +523,18 @@ export class Enemy extends Entity {
         }
         break;
       }
-      default: {
-        // rifle / fallback: square with visor stripe
+      default: { // rifle
         ctx.fillRect(-hw, -hh, this.width, this.height);
         ctx.fillStyle = flashing ? '#ff9999' : 'rgba(255,255,255,0.4)';
         ctx.fillRect(-hw + 2, -4, this.width - 4, 8);
-        // Forward nub
         ctx.fillStyle = flashing ? '#ff9999' : '#cc6666';
         ctx.fillRect(hw - 2, -3, 8, 6);
         break;
       }
     }
 
-    // Centre dot / label
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
-    ctx.font = `bold ${this.isBoss ? 10 : 8}px monospace`;
+    ctx.fillStyle    = 'rgba(255,255,255,0.7)';
+    ctx.font         = `bold ${this.isBoss ? 10 : 8}px monospace`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(this.profile.label, 0, 0);

@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Game, GameState } from '@/game/Game';
+import { VirtualInput } from '@/game/engine/InputManager';
 import HUD from './HUD';
 import GameOverlay from './GameOverlay';
+import MobileControls from './MobileControls';
 
 const CANVAS_WIDTH  = 1200;
 const CANVAS_HEIGHT = 675;
@@ -11,6 +13,8 @@ const CANVAS_HEIGHT = 675;
 const DEFAULT_STATE: GameState = {
   heroHealth:        100,
   heroMaxHealth:     100,
+  heroX:             80,
+  heroY:             CANVAS_HEIGHT / 2,
   heroGun:           'rifle',
   enemiesRemaining:  0,
   status:            'playing',
@@ -27,6 +31,12 @@ export default function GameCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef   = useRef<Game | null>(null);
   const [gameState, setGameState] = useState<GameState>(DEFAULT_STATE);
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+
+  // Detect touch capability once on mount
+  useEffect(() => {
+    setIsTouchDevice(navigator.maxTouchPoints > 0 || 'ontouchstart' in window);
+  }, []);
 
   const initGame = useCallback(() => {
     if (!canvasRef.current) return;
@@ -44,6 +54,11 @@ export default function GameCanvas() {
   const handleRestart       = useCallback(() => { gameRef.current?.restart(); }, []);
   const handleResume        = useCallback(() => { gameRef.current?.resume(); }, []);
   const handleUpgradeSelect = useCallback((index: number) => { gameRef.current?.selectUpgrade(index); }, []);
+  const handleVirtualInput  = useCallback((v: Partial<VirtualInput>) => { gameRef.current?.setVirtualInput(v); }, []);
+  const handlePause = useCallback(() => {
+    if (gameState.status === 'playing') gameRef.current?.pause();
+    else if (gameState.status === 'paused') gameRef.current?.resume();
+  }, [gameState.status]);
 
   return (
     <div
@@ -70,6 +85,14 @@ export default function GameCanvas() {
         onResume={handleResume}
         onUpgradeSelect={handleUpgradeSelect}
       />
+      {isTouchDevice && (
+        <MobileControls
+          heroX={gameState.heroX}
+          heroY={gameState.heroY}
+          onVirtualInput={handleVirtualInput}
+          onPause={handlePause}
+        />
+      )}
     </div>
   );
 }

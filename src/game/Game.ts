@@ -1,5 +1,5 @@
 import { GameLoop } from './engine/GameLoop';
-import { InputManager } from './engine/InputManager';
+import { InputManager, VirtualInput } from './engine/InputManager';
 import { Hero, HeroUpgradeType } from './objects/Hero';
 import { RoomMap } from './world/RoomMap';
 import { GunType } from './objects/Gun';
@@ -27,6 +27,8 @@ export interface UpgradeOption {
 export interface GameState {
   heroHealth: number;
   heroMaxHealth: number;
+  heroX: number;       // canvas-space, used by mobile aim
+  heroY: number;
   heroGun: GunType;
   enemiesRemaining: number;
   status: GameStatus;
@@ -134,6 +136,18 @@ export class Game {
       this.status = 'playing';
       this.emitState();
     }
+  }
+
+  pause() {
+    if (this.status === 'playing') {
+      this.status = 'paused';
+      this.emitState();
+    }
+  }
+
+  /** Called every frame by MobileControls to inject joystick/button state. */
+  setVirtualInput(v: Partial<VirtualInput>) {
+    this.input.setVirtual(v);
   }
 
   /** Called by GameCanvas when player clicks an upgrade card in the loot room overlay. */
@@ -322,6 +336,8 @@ export class Game {
     this.onStateChange({
       heroHealth:       Math.max(0, this.hero.health),
       heroMaxHealth:    this.hero.maxHealth,
+      heroX:            this.hero.middle.x,
+      heroY:            this.hero.middle.y,
       heroGun:          this.hero.currentGunType,
       enemiesRemaining: Math.max(0, this.map.totalEnemies),
       status:           this.status,

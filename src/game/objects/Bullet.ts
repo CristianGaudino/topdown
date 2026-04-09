@@ -11,6 +11,7 @@ export class Bullet extends Rectangle {
 
   private vx = 0;
   private vy = 0;
+  private lifetime: number;
 
   private getStatics: () => Rect[];
   private getEnemyTargets: () => Array<{ rect: Rect; onHit: (dmg: number, x: number, y: number) => void }>;
@@ -43,10 +44,14 @@ export class Bullet extends Rectangle {
       this.vx = (dx / dist) * speed;
       this.vy = (dy / dist) * speed;
     }
+    // Max travel ~1400 px regardless of speed; ensures stray bullets don't accumulate
+    this.lifetime = Math.ceil(1400 / Math.max(speed, 1));
   }
 
   update() {
     if (this.stopped) return;
+
+    if (--this.lifetime <= 0) { this.stopped = true; return; }
 
     this.x += this.vx;
     this.y += this.vy;

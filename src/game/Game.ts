@@ -253,6 +253,7 @@ export class Game {
     this.map.currentRoom.spawnDamageNumber(x, y, dmg, false);
     this.shakeIntensity = Math.min(10, 3 + dmg * 0.15);
     this.shakeDuration  = Math.round(8 + dmg * 0.2);
+    this.hero.applyKnockback(x, y);
   }
 
   private handlePlayerDied() {

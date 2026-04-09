@@ -27,8 +27,10 @@ export class Hero extends Entity {
   dashCooldown = 0;
   private dashVx = 0;
   private dashVy = 0;
-  private aimAngle       = 0;
+  private aimAngle        = 0;
   private invincibleTimer = 0;
+  private knockbackVx     = 0;
+  private knockbackVy     = 0;
   private static readonly I_FRAMES = 45;
 
   // Injected per-frame by Game
@@ -46,6 +48,15 @@ export class Hero extends Entity {
     if (this.invincibleTimer > 0) return;
     super.takeDamage(amount);
     this.invincibleTimer = Hero.I_FRAMES;
+  }
+
+  applyKnockback(fromX: number, fromY: number, strength = 6) {
+    if (this.invincibleTimer > Hero.I_FRAMES - 3) return; // already fresh i-frames, skip
+    const dx  = this.middle.x - fromX;
+    const dy  = this.middle.y - fromY;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    this.knockbackVx = (dx / len) * strength;
+    this.knockbackVy = (dy / len) * strength;
   }
 
   equipGun(type: GunType) {
@@ -115,14 +126,23 @@ export class Hero extends Entity {
       ) || 1;
       this.dashVx = (mx !== 0 || my !== 0) ? (mx / len) * DASH_SPEED : (dx / len) * DASH_SPEED;
       this.dashVy = (mx !== 0 || my !== 0) ? (my / len) * DASH_SPEED : (dy / len) * DASH_SPEED;
-      this.dashTimer    = DASH_DURATION;
-      this.dashCooldown = this.maxDashCooldown;
+      this.dashTimer      = DASH_DURATION;
+      this.dashCooldown   = this.maxDashCooldown;
+      this.invincibleTimer = Math.max(this.invincibleTimer, DASH_DURATION + 4);
     }
 
     if (this.dashCooldown > 0) this.dashCooldown--;
 
     const speed   = BASE_SPEED + this.moveSpeedBonus;
     const statics = this.getStatics();
+
+    // Knockback — decays quickly, overrides other movement while active
+    if (Math.abs(this.knockbackVx) > 0.1 || Math.abs(this.knockbackVy) > 0.1) {
+      if (!this.wouldCollide(this.knockbackVx, 0, statics)) this.x += this.knockbackVx;
+      if (!this.wouldCollide(0, this.knockbackVy, statics)) this.y += this.knockbackVy;
+      this.knockbackVx *= 0.72;
+      this.knockbackVy *= 0.72;
+    }
 
     if (this.dashTimer > 0) {
       this.dashTimer--;

@@ -87,15 +87,15 @@ export class Gun {
     const baseColor   = isEnemy ? stats.enemyColor : playerColor;
 
     if (this.type === 'shotgun') {
-      const dx  = targetX - fromX;
-      const dy  = targetY - fromY;
-      const len = Math.sqrt(dx * dx + dy * dy) || 1;
-      const px  = -dy / len;
-      const py  =  dx / len;
-      const spread = 60;
-      bullets.push(make(targetX,              targetY,              baseColor));
-      bullets.push(make(targetX + px * spread, targetY + py * spread, baseColor));
-      bullets.push(make(targetX - px * spread, targetY - py * spread, baseColor));
+      const dx    = targetX - fromX;
+      const dy    = targetY - fromY;
+      const base  = Math.atan2(dy, dx);
+      const range = 300; // project target point at fixed distance so spread is angle-based
+      const SPREAD_RAD = 0.30; // ±~17° per pellet
+      for (let i = -1; i <= 1; i++) {
+        const a = base + i * SPREAD_RAD;
+        bullets.push(make(fromX + Math.cos(a) * range, fromY + Math.sin(a) * range, baseColor));
+      }
     } else if (this.type === 'sprinkler') {
       const color = RAINBOW[this.rainbowIndex % RAINBOW.length];
       this.rainbowIndex++;

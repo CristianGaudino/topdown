@@ -268,6 +268,7 @@ export class Room {
           ? [{
               rect: this.heroPresent as Rect,
               onHit: (dmg: number, x: number, y: number) => {
+                if (this.heroPresent!.isInvincible) return;
                 this.heroPresent!.takeDamage(dmg);
                 this.onPlayerDamaged?.(dmg, x, y);
                 if (this.heroPresent!.health <= 0) this.onPlayerKilled?.();
@@ -278,14 +279,14 @@ export class Room {
       spawnParticles: (p: Particle[]) => this.particles.push(...p),
       onKilled:       ()              => this.removeEnemy(enemy),
       onTouchPlayer:  () => {
-        if (this.heroPresent) {
+        if (this.heroPresent && !this.heroPresent.isInvincible) {
           const dmg = enemy.isBoss ? 30 : 20;
           this.heroPresent.takeDamage(dmg);
           const m = this.heroPresent.middle;
           this.onPlayerDamaged?.(dmg, m.x, m.y);
           if (this.heroPresent.health <= 0) this.onPlayerKilled?.();
+          this.onPlayerTouched?.();
         }
-        this.onPlayerTouched?.();
       },
     };
   }

@@ -182,6 +182,10 @@ export class Hero extends Entity {
     return this.dashCooldown / this.maxDashCooldown;
   }
 
+  get isInvincible(): boolean {
+    return this.invincibleTimer > 0;
+  }
+
   draw(ctx: CanvasRenderingContext2D) {
     if (this.invincibleTimer > 0 && Math.floor(this.invincibleTimer / 5) % 2 === 0) return;
 

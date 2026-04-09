@@ -118,15 +118,18 @@ export class Hero extends Entity {
 
     // Dash trigger
     if (input.dash && this.dashCooldown === 0 && this.dashTimer === 0) {
-      const dx = input.mouseX - this.middle.x;
-      const dy = input.mouseY - this.middle.y;
       const mx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
       const my = (input.down  ? 1 : 0) - (input.up   ? 1 : 0);
-      const len = Math.sqrt(
-        (mx !== 0 || my !== 0) ? mx * mx + my * my : dx * dx + dy * dy,
-      ) || 1;
-      this.dashVx = (mx !== 0 || my !== 0) ? (mx / len) * DASH_SPEED : (dx / len) * DASH_SPEED;
-      this.dashVy = (mx !== 0 || my !== 0) ? (my / len) * DASH_SPEED : (dy / len) * DASH_SPEED;
+      const mlen = Math.sqrt(mx * mx + my * my);
+      if (mlen > 0) {
+        // Dash in movement direction (already normalised)
+        this.dashVx = (mx / mlen) * DASH_SPEED;
+        this.dashVy = (my / mlen) * DASH_SPEED;
+      } else {
+        // No movement held — dash along current aim angle
+        this.dashVx = Math.cos(this.aimAngle) * DASH_SPEED;
+        this.dashVy = Math.sin(this.aimAngle) * DASH_SPEED;
+      }
       this.dashTimer      = DASH_DURATION;
       this.dashCooldown   = this.maxDashCooldown;
       this.invincibleTimer = Math.max(this.invincibleTimer, DASH_DURATION + 4);
@@ -158,8 +161,12 @@ export class Hero extends Entity {
         mx /= mlen;
         my /= mlen;
         const s = speed * input.speedFraction;
-        if (!this.wouldCollide(mx * s, 0, statics)) this.x += mx * s;
-        if (!this.wouldCollide(0, my * s, statics)) this.y += my * s;
+        const canX = !this.wouldCollide(mx * s, 0, statics);
+        const canY = !this.wouldCollide(0, my * s, statics);
+        // When wall-sliding (one axis blocked) step the free axis at full speed
+        // so pressing into a wall doesn't reduce speed along it.
+        if (canX) this.x += (canY ? mx : Math.sign(mx)) * s;
+        if (canY) this.y += (canX ? my : Math.sign(my)) * s;
       }
     }
 

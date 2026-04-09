@@ -35,8 +35,8 @@ function StatRow({ label, value }: { label: string; value: string | number }) {
 
 function PauseMenu({ stats, heroGun, heroHealth, heroMaxHealth, onResume, onRestart }: Omit<GameOverlayProps, 'status' | 'pendingUpgrades' | 'bossHealth' | 'onUpgradeSelect'>) {
   return (
-    <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="px-8 py-6 bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-80">
+    <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm overflow-y-auto py-4">
+      <div className="px-8 py-6 bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-80 my-auto">
         <h2 className="text-2xl font-bold text-white text-center mb-4 font-mono tracking-widest">PAUSED</h2>
 
         <div className="mb-4 flex flex-col gap-1 bg-gray-800/60 rounded-lg px-4 py-3">

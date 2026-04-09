@@ -1,6 +1,6 @@
 import { Rectangle } from '../objects/Rectangle';
 import { Border, GateStatus } from '../objects/Border';
-import { Wall } from '../objects/Wall';
+import { Wall, WallKind, WALL_PALETTES } from '../objects/Wall';
 import { Bullet } from '../objects/Bullet';
 import { Particle } from '../objects/Particle';
 import { Pickup, PickupType } from '../objects/Pickup';
@@ -97,125 +97,129 @@ export class Room {
     const iW = this.cw - 2 * B;
     const iH = this.ch - 2 * B;
 
-    // w(fx, fy, t): fractional interior position → [absX, absY, orientation]
-    const w = (fx: number, fy: number, t: 0 | 1): [number, number, 0 | 1] =>
-      [Math.round(B + fx * iW), Math.round(B + fy * iH), t];
+    // w(fx, fy, kind): fractional interior position → [absX, absY, WallKind]
+    const w = (fx: number, fy: number, kind: WallKind): [number, number, WallKind] =>
+      [Math.round(B + fx * iW), Math.round(B + fy * iH), kind];
 
-    type Spec = [number, number, 0 | 1];
+    const paletteName = this.role === 'boss'  ? 'crimson'
+                      : this.role === 'elite' ? 'slate'
+                      : this.role === 'loot'  ? 'teal'
+                      : 'stone';
+    const palette = WALL_PALETTES[paletteName];
+
+    type Spec = [number, number, WallKind];
     let specs: Spec[];
 
     switch (layout) {
 
       case 'open':
         specs = variant === 0 ? [
-          w(0.08, 0.12, 0),
-          w(0.74, 0.74, 0),
+          w(0.08, 0.12, 'slab-h'),
+          w(0.74, 0.74, 'slab-h'),
         ] : [
-          w(0.74, 0.12, 0),
-          w(0.08, 0.74, 0),
-          w(0.43, 0.43, 1),
+          w(0.74, 0.12, 'slab-h'),
+          w(0.08, 0.74, 'slab-h'),
+          w(0.43, 0.43, 'crate'),
         ];
         break;
 
       case 'pillars':
         specs = variant === 0 ? [
           // 2 columns × 3 rows
-          w(0.17, 0.14, 1), w(0.80, 0.14, 1),
-          w(0.17, 0.44, 1), w(0.80, 0.44, 1),
-          w(0.17, 0.70, 1), w(0.80, 0.70, 1),
+          w(0.17, 0.14, 'pillar-lg'), w(0.80, 0.14, 'pillar-lg'),
+          w(0.17, 0.44, 'pillar-lg'), w(0.80, 0.44, 'pillar-lg'),
+          w(0.17, 0.70, 'pillar-lg'), w(0.80, 0.70, 'pillar-lg'),
         ] : [
           // 3 columns × 2 rows
-          w(0.17, 0.20, 1), w(0.47, 0.20, 1), w(0.78, 0.20, 1),
-          w(0.17, 0.62, 1), w(0.47, 0.62, 1), w(0.78, 0.62, 1),
+          w(0.17, 0.20, 'pillar'), w(0.47, 0.20, 'pillar'), w(0.78, 0.20, 'pillar'),
+          w(0.17, 0.62, 'pillar'), w(0.47, 0.62, 'pillar'), w(0.78, 0.62, 'pillar'),
         ];
         break;
 
       case 'cross':
         specs = variant === 0 ? [
           // Classic + cross
-          w(0.18, 0.46, 0), w(0.32, 0.46, 0),
-          w(0.58, 0.46, 0), w(0.72, 0.46, 0),
-          w(0.47, 0.30, 1),
-          w(0.47, 0.51, 1),
+          w(0.18, 0.46, 'slab-h'), w(0.32, 0.46, 'slab-h'),
+          w(0.58, 0.46, 'slab-h'), w(0.72, 0.46, 'slab-h'),
+          w(0.47, 0.30, 'slab-v'),
+          w(0.47, 0.51, 'slab-v'),
         ] : [
           // Wider X-style (diagonal feel via offset arms)
-          w(0.14, 0.34, 0), w(0.14, 0.55, 0),
-          w(0.70, 0.34, 0), w(0.70, 0.55, 0),
-          w(0.40, 0.20, 1),
-          w(0.40, 0.62, 1),
+          w(0.14, 0.34, 'slab-h'), w(0.14, 0.55, 'slab-h'),
+          w(0.70, 0.34, 'slab-h'), w(0.70, 0.55, 'slab-h'),
+          w(0.40, 0.20, 'slab-v'),
+          w(0.40, 0.62, 'slab-v'),
         ];
         break;
 
       case 'cover-field':
         specs = variant === 0 ? [
-          // L-shapes scattered
-          w(0.18, 0.18, 0), w(0.18, 0.18, 1),
-          w(0.58, 0.12, 0),
-          w(0.74, 0.34, 1), w(0.74, 0.34, 0),
-          w(0.22, 0.62, 0),
-          w(0.72, 0.68, 1),
+          w(0.18, 0.18, 'L-A'),   // ┌ top-left
+          w(0.58, 0.12, 'slab-h'),
+          w(0.68, 0.34, 'L-D'),   // ┘ right side
+          w(0.22, 0.62, 'slab-h'),
+          w(0.68, 0.64, 'slab-v'),
         ] : [
-          // Mirror — L-shapes flipped
-          w(0.72, 0.18, 0), w(0.72, 0.18, 1),
-          w(0.32, 0.12, 0),
-          w(0.16, 0.34, 1), w(0.16, 0.34, 0),
-          w(0.68, 0.62, 0),
-          w(0.18, 0.68, 1),
+          w(0.68, 0.18, 'L-B'),   // ┐ top-right
+          w(0.28, 0.12, 'slab-h'),
+          w(0.12, 0.34, 'L-C'),   // └ left side
+          w(0.58, 0.62, 'slab-h'),
+          w(0.14, 0.64, 'slab-v'),
         ];
         break;
 
       case 'bunker':
         specs = variant === 0 ? [
           // Dense left side — sniper sits behind it; player must push right
-          w(0.18, 0.16, 0), w(0.18, 0.36, 0), w(0.18, 0.56, 0),
-          w(0.30, 0.26, 1), w(0.30, 0.50, 1),
-          w(0.72, 0.43, 0), w(0.72, 0.56, 0),
+          w(0.18, 0.16, 'slab-h'), w(0.18, 0.36, 'slab-h'), w(0.18, 0.56, 'slab-h'),
+          w(0.30, 0.26, 'slab-v'), w(0.30, 0.50, 'slab-v'),
+          w(0.72, 0.43, 'slab-h'), w(0.72, 0.56, 'slab-h'),
         ] : [
           // Dense right side (mirrored)
-          w(0.72, 0.16, 0), w(0.72, 0.36, 0), w(0.72, 0.56, 0),
-          w(0.60, 0.26, 1), w(0.60, 0.50, 1),
-          w(0.18, 0.43, 0), w(0.18, 0.56, 0),
+          w(0.72, 0.16, 'slab-h'), w(0.72, 0.36, 'slab-h'), w(0.72, 0.56, 'slab-h'),
+          w(0.60, 0.26, 'slab-v'), w(0.60, 0.50, 'slab-v'),
+          w(0.18, 0.43, 'slab-h'), w(0.18, 0.56, 'slab-h'),
         ];
         break;
 
       case 'corridor':
         specs = variant === 0 ? [
           // Zigzag left-to-right
-          w(0.16, 0.14, 1), w(0.16, 0.34, 0),
-          w(0.35, 0.30, 0),
-          w(0.50, 0.50, 1),
-          w(0.57, 0.18, 0), w(0.62, 0.32, 1),
-          w(0.70, 0.50, 0), w(0.70, 0.67, 1),
+          w(0.16, 0.14, 'slab-v'), w(0.16, 0.34, 'slab-h'),
+          w(0.35, 0.30, 'slab-h'),
+          w(0.50, 0.50, 'slab-v'),
+          w(0.57, 0.18, 'slab-h'), w(0.62, 0.32, 'slab-v'),
+          w(0.70, 0.50, 'slab-h'), w(0.70, 0.67, 'slab-v'),
         ] : [
           // S-curve top-to-bottom
-          w(0.22, 0.14, 0), w(0.38, 0.14, 0),
-          w(0.55, 0.30, 1),
-          w(0.32, 0.48, 0), w(0.48, 0.48, 0),
-          w(0.20, 0.64, 1),
-          w(0.60, 0.64, 0), w(0.76, 0.64, 0),
+          w(0.22, 0.14, 'slab-h'), w(0.38, 0.14, 'slab-h'),
+          w(0.55, 0.30, 'slab-v'),
+          w(0.32, 0.48, 'slab-h'), w(0.48, 0.48, 'slab-h'),
+          w(0.20, 0.64, 'slab-v'),
+          w(0.60, 0.64, 'slab-h'), w(0.76, 0.64, 'slab-h'),
         ];
         break;
 
       case 'arena':
       default:
         specs = variant === 0 ? [
-          // Corner pillars + centre bars
-          w(0.12, 0.12, 1), w(0.80, 0.12, 1),
-          w(0.12, 0.68, 1), w(0.80, 0.68, 1),
-          w(0.20, 0.43, 0), w(0.72, 0.43, 0),
-          w(0.43, 0.32, 0), w(0.43, 0.55, 0),
+          // Corner large pillars + centre bars
+          w(0.12, 0.12, 'pillar-lg'), w(0.80, 0.12, 'pillar-lg'),
+          w(0.12, 0.68, 'pillar-lg'), w(0.80, 0.68, 'pillar-lg'),
+          w(0.20, 0.43, 'slab-h'),    w(0.72, 0.43, 'slab-h'),
+          w(0.43, 0.32, 'slab-v'),    w(0.43, 0.55, 'slab-v'),
         ] : [
-          // Inner ring of pillars — open corners, tight centre
-          w(0.30, 0.22, 1), w(0.62, 0.22, 1),
-          w(0.30, 0.68, 1), w(0.62, 0.68, 1),
-          w(0.15, 0.43, 0), w(0.78, 0.43, 0),
-          w(0.43, 0.16, 0), w(0.43, 0.72, 0),
+          // Inner ring of pillars + crates
+          w(0.30, 0.22, 'pillar-lg'), w(0.62, 0.22, 'pillar-lg'),
+          w(0.30, 0.68, 'pillar-lg'), w(0.62, 0.68, 'pillar-lg'),
+          w(0.15, 0.43, 'crate'),     w(0.78, 0.43, 'crate'),
+          w(0.43, 0.16, 'slab-h'),    w(0.43, 0.72, 'slab-h'),
         ];
         break;
     }
 
     return specs
-      .map(([x, y, t]) => new Wall(x, y, t, WALL_COLOR))
+      .map(([x, y, kind]) => new Wall(x, y, kind, palette))
       .filter(wall => !this.isOnDoorMat(wall));
   }
 

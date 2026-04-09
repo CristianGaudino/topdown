@@ -8,6 +8,7 @@ export class Bullet extends Rectangle {
   readonly source: BulletSource;
   readonly damage: number;
   stopped = false;
+  private pierceLeft: number;
 
   private vx = 0;
   private vy = 0;
@@ -29,10 +30,12 @@ export class Bullet extends Rectangle {
     getEnemyTargets: () => Array<{ rect: Rect; onHit: (dmg: number, x: number, y: number) => void }>,
     getPlayerTarget: () => Array<{ rect: Rect; onHit: (dmg: number, x: number, y: number) => void }>,
     spawnParticles: (particles: Particle[]) => void,
+    pierce = 0,
   ) {
     super(x, y, width, height, color);
-    this.damage = damage;
-    this.source = source;
+    this.damage      = damage;
+    this.source      = source;
+    this.pierceLeft  = pierce;
     this.getStatics = getStatics;
     this.getEnemyTargets = getEnemyTargets;
     this.getPlayerTarget = getPlayerTarget;
@@ -69,8 +72,12 @@ export class Bullet extends Rectangle {
       for (const t of this.getEnemyTargets()) {
         if (testAABB(this.x, this.y, this.width, this.height, t.rect)) {
           t.onHit(this.damage, this.x, this.y);
-          this.impact();
-          return;
+          if (this.pierceLeft > 0) {
+            this.pierceLeft--;
+          } else {
+            this.impact();
+            return;
+          }
         }
       }
     } else {

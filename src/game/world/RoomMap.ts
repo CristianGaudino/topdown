@@ -31,13 +31,15 @@ interface CellEntry {
 }
 
 interface RoomPlan {
-  cell:       CellEntry;
-  distance:   number;
-  role:       RoomRole;
-  layout:     LayoutType;
-  enemyType:  GunType | null;
-  enemyCount: number;
-  isBoss:     boolean;
+  cell:        CellEntry;
+  distance:    number;
+  role:        RoomRole;
+  layout:      LayoutType;
+  enemyType:   GunType | null;
+  enemyCount:  number;
+  extraType:   GunType | null;  // optional second enemy type
+  extraCount:  number;
+  isBoss:      boolean;
 }
 
 // ── RoomMap ───────────────────────────────────────────────────────────────────
@@ -102,8 +104,11 @@ export class RoomMap {
       const room = roomLookup.get(`${plan.cell.row},${plan.cell.col}`)!;
       if (plan.enemyCount > 0 && plan.enemyType) {
         room.spawnEnemies(plan.enemyCount, plan.enemyType, plan.isBoss);
-        this.totalEnemies += room.enemyCount;
       }
+      if (plan.extraCount > 0 && plan.extraType) {
+        room.spawnEnemies(plan.extraCount, plan.extraType, false);
+      }
+      this.totalEnemies += room.enemyCount;
       if (plan.role === 'start') {
         room.spawnInitialPickups();
       }
@@ -226,12 +231,15 @@ export class RoomMap {
       let enemyCount  = 0;
       let isBoss      = false;
 
+      let extraType:  GunType | null = null;
+      let extraCount  = 0;
+
       if (role === 'boss') {
         enemyType  = 'sprinkler';
         enemyCount = 1;
         isBoss     = true;
       } else if (role === 'combat' || role === 'elite') {
-        // Scale enemy type with distance from start
+        // Scale primary enemy type with distance from start
         if      (pct < 0.25) { enemyType = 'rifle';   enemyCount = 1; }
         else if (pct < 0.45) { enemyType = 'smg';     enemyCount = 2; }
         else if (pct < 0.65) { enemyType = 'sniper';  enemyCount = 2; }
@@ -239,10 +247,17 @@ export class RoomMap {
 
         if (role === 'elite') {
           enemyCount = Math.min(enemyCount + 1, 5);
-          // Upgrade to the next tougher type for elite rooms
           const tier: GunType[] = ['rifle', 'smg', 'sniper', 'shotgun'];
           const i = tier.indexOf(enemyType as GunType);
           if (i < tier.length - 1) enemyType = tier[i + 1];
+        }
+
+        // Mid/late rooms: add a flanking enemy of a different type
+        if (pct >= 0.4 && Math.random() < 0.55) {
+          const tier: GunType[] = ['rifle', 'smg', 'sniper', 'shotgun'];
+          const others = tier.filter(t => t !== enemyType);
+          extraType  = others[Math.floor(Math.random() * others.length)];
+          extraCount = 1;
         }
       }
 
@@ -253,6 +268,8 @@ export class RoomMap {
         layout:     this.chooseLayout(role, enemyType),
         enemyType,
         enemyCount,
+        extraType,
+        extraCount,
         isBoss,
       };
     });

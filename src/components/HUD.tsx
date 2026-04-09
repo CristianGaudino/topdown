@@ -71,6 +71,20 @@ function GunIndicator({ gunType }: { gunType: GunType }) {
   );
 }
 
+function ShieldIndicator({ charges }: { charges: number }) {
+  if (charges <= 0) return null;
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-white text-xs font-mono w-6">SHD</span>
+      <div className="flex gap-1">
+        {Array.from({ length: charges }).map((_, i) => (
+          <div key={i} className="w-3 h-3 rounded-sm" style={{ backgroundColor: '#38bdf8', boxShadow: '0 0 4px #38bdf8' }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function BossHealthBar({ bossHealth }: { bossHealth: NonNullable<GameState['bossHealth']> }) {
   const { current, max, phase } = bossHealth;
   const pct = Math.max(0, current / max);
@@ -138,6 +152,30 @@ function Minimap({ state }: { state: GameState }) {
   );
 }
 
+const ROOM_NOTIF: Partial<Record<RoomRole, { text: string; color: string }>> = {
+  combat: { text: 'COMBAT ROOM', color: '#e74c3c' },
+  elite:  { text: '⚠ ELITE ROOM',  color: '#e67e22' },
+  boss:   { text: '★ BOSS ROOM',   color: '#c0392b' },
+};
+
+function RoomNotification({ notif }: { notif: NonNullable<HUDProps['state']['roomNotif']> }) {
+  const info = ROOM_NOTIF[notif.role];
+  if (!info) return null;
+  return (
+    <div
+      className="absolute top-16 left-1/2 -translate-x-1/2 pointer-events-none select-none"
+      style={{ opacity: notif.alpha }}
+    >
+      <div
+        className="px-6 py-2 rounded-lg font-mono font-bold text-base tracking-widest"
+        style={{ color: info.color, border: `1px solid ${info.color}55`, backgroundColor: `${info.color}22` }}
+      >
+        {info.text}
+      </div>
+    </div>
+  );
+}
+
 export default function HUD({ state }: HUDProps) {
   return (
     <>
@@ -147,6 +185,7 @@ export default function HUD({ state }: HUDProps) {
           <HealthBar current={state.heroHealth} max={state.heroMaxHealth} />
           <DashIndicator cooldownFraction={state.dashCooldownFraction} />
           <GunIndicator gunType={state.heroGun} />
+          <ShieldIndicator charges={state.shieldCharges} />
           <div className="flex items-center gap-2">
             <span className="text-white text-xs font-mono w-6">☠</span>
             <span className="text-red-400 text-xs font-mono">
@@ -160,6 +199,9 @@ export default function HUD({ state }: HUDProps) {
           <Minimap state={state} />
         </div>
       </div>
+
+      {/* Centre-top: room entry notification */}
+      {state.roomNotif && <RoomNotification notif={state.roomNotif} />}
 
       {/* Bottom-centre: boss health bar (only when fighting boss) */}
       {state.bossHealth && <BossHealthBar bossHealth={state.bossHealth} />}

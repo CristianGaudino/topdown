@@ -26,7 +26,7 @@ export interface VirtualInput {
 export class InputManager {
   private state: InputState = {
     up: false, down: false, left: false, right: false,
-    dash: false, mouseX: 0, mouseY: 0, mouseDown: false,
+    dash: false, mouseX: 0, mouseY: 0, mouseDown: false, speedFraction: 1.0,
   };
 
   private virtual: VirtualInput = {

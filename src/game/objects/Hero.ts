@@ -10,7 +10,7 @@ const DASH_DURATION  = 10;   // frames
 const BASE_DASH_COOLDOWN = 150; // frames (~2.5s)
 const MAX_HEALTH     = 100;
 
-export type HeroUpgradeType = 'maxHealth' | 'dashCooldown' | 'damage' | 'fireRate' | 'moveSpeed';
+export type HeroUpgradeType = 'maxHealth' | 'dashCooldown' | 'damage' | 'fireRate' | 'moveSpeed' | 'pierce' | 'multishot' | 'shield';
 
 export class Hero extends Entity {
   maxHealth: number = MAX_HEALTH; // mutable for upgrades
@@ -21,6 +21,9 @@ export class Hero extends Entity {
   damageMultiplier   = 1.0;
   cooldownMultiplier = 1.0; // <1 = faster fire rate
   moveSpeedBonus     = 0;
+  pierceCount        = 0;   // bullets pass through this many extra enemies
+  multishotCount     = 0;   // extra bullets per shot
+  shieldCharges      = 0;   // blocks next N hits entirely
   private maxDashCooldown = BASE_DASH_COOLDOWN;
 
   dashTimer    = 0;
@@ -46,6 +49,11 @@ export class Hero extends Entity {
 
   takeDamage(amount: number) {
     if (this.invincibleTimer > 0) return;
+    if (this.shieldCharges > 0) {
+      this.shieldCharges--;
+      this.invincibleTimer = Hero.I_FRAMES; // still flash, no damage
+      return;
+    }
     super.takeDamage(amount);
     this.invincibleTimer = Hero.I_FRAMES;
   }
@@ -82,6 +90,15 @@ export class Hero extends Entity {
       case 'moveSpeed':
         this.moveSpeedBonus += 0.5;
         break;
+      case 'pierce':
+        this.pierceCount++;
+        break;
+      case 'multishot':
+        this.multishotCount++;
+        break;
+      case 'shield':
+        this.shieldCharges += 2;
+        break;
     }
   }
 
@@ -97,6 +114,8 @@ export class Hero extends Entity {
       this.spawnParticles,
       this.damageMultiplier,
       this.cooldownMultiplier,
+      this.pierceCount,
+      this.multishotCount,
     );
     bullets.forEach(b => this.spawnBullet(b));
     if (bullets.length > 0) {

@@ -36,6 +36,9 @@ export interface GameState {
   currentRoomCol: number;
   mapRooms: { row: number; col: number; isCurrent: boolean; hasEnemies: boolean; role: RoomRole }[];
   dashCooldownFraction: number;
+  shieldCharges: number;
+  roomNotif: { role: RoomRole; alpha: number } | null;
+  appliedUpgrades: UpgradeOption[];
   stats: RunStats;
   pendingUpgrades: UpgradeOption[] | null;
   bossHealth: { current: number; max: number; phase: 1 | 2 | 3 } | null;
@@ -44,11 +47,14 @@ export interface GameState {
 const HEAL_AMOUNT = 30;
 
 const UPGRADE_POOL: UpgradeOption[] = [
-  { type: 'maxHealth',    label: 'Reinforced',    description: '+25 max HP, restored for 25', icon: '❤' },
-  { type: 'dashCooldown', label: 'Swift Feet',     description: 'Dash cooldown −30%',          icon: '⚡' },
-  { type: 'damage',       label: 'High Caliber',   description: '+25% bullet damage',          icon: '💥' },
-  { type: 'fireRate',     label: 'Rapid Fire',      description: '+20% fire rate',              icon: '🔫' },
-  { type: 'moveSpeed',    label: 'Adrenaline',      description: '+0.5 movement speed',         icon: '👟' },
+  { type: 'maxHealth',    label: 'Reinforced',   description: '+25 max HP, restored for 25',       icon: '❤'  },
+  { type: 'dashCooldown', label: 'Swift Feet',   description: 'Dash cooldown −30%',                icon: '⚡' },
+  { type: 'damage',       label: 'High Caliber', description: '+25% bullet damage',                icon: '💥' },
+  { type: 'fireRate',     label: 'Rapid Fire',   description: '+20% fire rate',                    icon: '🔫' },
+  { type: 'moveSpeed',    label: 'Adrenaline',   description: '+0.5 movement speed',               icon: '👟' },
+  { type: 'pierce',       label: 'Penetrator',   description: 'Bullets pierce through one enemy',  icon: '🔱' },
+  { type: 'multishot',    label: 'Spread Shot',  description: 'Fire one extra bullet per shot',    icon: '↗'  },
+  { type: 'shield',       label: 'Barrier',      description: 'Block the next 2 hits completely',  icon: '🛡'  },
 ];
 
 function generateUpgrades(): UpgradeOption[] {
@@ -69,7 +75,11 @@ export class Game {
   private shakeIntensity = 0;
   private shakeDuration  = 0;
   private flashTimer     = 0;
+  private clearTimer     = 0;   // green room-clear pulse
   private pendingUpgrades: UpgradeOption[] | null = null;
+  private roomNotifTimer = 0;
+  private roomNotifRole: RoomRole | null = null;
+  private appliedUpgrades: UpgradeOption[] = [];
 
   constructor(canvas: HTMLCanvasElement, onStateChange: (state: GameState) => void) {
     this.canvas = canvas;
@@ -109,6 +119,9 @@ export class Game {
     this.status         = 'playing';
     this.pendingUpgrades = null;
     this.stats           = { kills: 0, damageTaken: 0, healthPickedUp: 0, gunsPickedUp: 0, shotsFired: 0, shotsHit: 0 };
+    this.appliedUpgrades = [];
+    this.roomNotifTimer  = 0;
+    this.roomNotifRole   = null;
 
     this.map = new RoomMap(this.canvas.width, this.canvas.height, {
       onEnemyKilled:     (x, y, gunType, isBoss) => this.handleEnemyKilled(x, y, gunType, isBoss),
@@ -123,6 +136,7 @@ export class Game {
     this.map.currentRoom.heroPresent = this.hero;
     this.map.currentRoom.visited     = true;
     this.flashTimer = 0;
+    this.clearTimer = 0;
 
     this.input = new InputManager(this.canvas);
     this.input.setPauseCallback(() => this.togglePause());
@@ -156,6 +170,7 @@ export class Game {
     const chosen = this.pendingUpgrades[index];
     if (!chosen) return;
     this.hero.applyUpgrade(chosen.type);
+    this.appliedUpgrades.push(chosen);
     this.pendingUpgrades = null;
     this.status = 'playing';
     this.emitState();
@@ -197,6 +212,7 @@ export class Game {
     this.hero.update(input);
     this.checkRoomTransition();
     room.update(this.hero);
+    if (this.roomNotifTimer > 0) this.roomNotifTimer--;
 
     this.draw();
     this.emitState();
@@ -229,6 +245,12 @@ export class Game {
       this.flashTimer      = 10;
       this.wireHeroToRoom();
 
+      // Room entry notification (skip start; loot handled by upgrade overlay)
+      if (nextRoom.role !== 'start' && nextRoom.role !== 'loot') {
+        this.roomNotifRole  = nextRoom.role;
+        this.roomNotifTimer = 90;
+      }
+
       // Show upgrade picker on first visit to a loot room
       if (isFirstVisit && nextRoom.role === 'loot') {
         this.pendingUpgrades = generateUpgrades();
@@ -239,12 +261,15 @@ export class Game {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private handleEnemyKilled(_x: number, _y: number, _gunType: GunType, _isBoss: boolean) {
+  private handleEnemyKilled(_x: number, _y: number, _gunType: GunType, isBoss: boolean) {
     this.stats.kills++;
     this.map.totalEnemies--;
     if (this.map.totalEnemies <= 0 && this.status === 'playing') {
       this.status = 'won';
       this.emitState();
+    } else if (this.map.currentRoom.enemies.length === 0) {
+      // Last enemy in this room cleared — trigger green pulse
+      this.clearTimer = isBoss ? 40 : 22;
     }
   }
 
@@ -317,7 +342,15 @@ export class Game {
       ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     }
 
-    // Room transition flash
+    // Room clear pulse (green)
+    if (this.clearTimer > 0) {
+      const alpha = (this.clearTimer / 22) * 0.3;
+      ctx.fillStyle = `rgba(39,174,96,${alpha.toFixed(2)})`;
+      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      this.clearTimer--;
+    }
+
+    // Room transition flash (white)
     if (this.flashTimer > 0) {
       ctx.fillStyle = `rgba(255,255,255,${(this.flashTimer / 10) * 0.45})`;
       ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -354,6 +387,12 @@ export class Game {
           role:       room.role,
         })),
       dashCooldownFraction: this.hero.dashCooldownFraction,
+      shieldCharges:   this.hero.shieldCharges,
+      roomNotif:       this.roomNotifTimer > 0 && this.roomNotifRole
+        ? { role: this.roomNotifRole, alpha: this.roomNotifTimer > 75 ? (90 - this.roomNotifTimer) / 15
+            : this.roomNotifTimer < 30 ? this.roomNotifTimer / 30 : 1 }
+        : null,
+      appliedUpgrades: [...this.appliedUpgrades],
       stats:           { ...this.stats },
       pendingUpgrades: this.pendingUpgrades,
       bossHealth:      bossEnemy

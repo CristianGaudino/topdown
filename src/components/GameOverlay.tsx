@@ -10,6 +10,7 @@ interface GameOverlayProps {
   heroHealth: number;
   heroMaxHealth: number;
   pendingUpgrades: UpgradeOption[] | null;
+  appliedUpgrades: UpgradeOption[];
   bossHealth: { current: number; max: number; phase: 1 | 2 | 3 } | null;
   onRestart: () => void;
   onResume: () => void;
@@ -33,7 +34,7 @@ function StatRow({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function PauseMenu({ stats, heroGun, heroHealth, heroMaxHealth, onResume, onRestart }: Omit<GameOverlayProps, 'status' | 'pendingUpgrades' | 'bossHealth' | 'onUpgradeSelect'>) {
+function PauseMenu({ stats, heroGun, heroHealth, heroMaxHealth, appliedUpgrades, onResume, onRestart }: Omit<GameOverlayProps, 'status' | 'pendingUpgrades' | 'bossHealth' | 'onUpgradeSelect'>) {
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm overflow-y-auto py-4">
       <div className="px-8 py-6 bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-80 my-auto">
@@ -46,6 +47,19 @@ function PauseMenu({ stats, heroGun, heroHealth, heroMaxHealth, onResume, onRest
           <StatRow label="Accuracy" value={stats.shotsFired === 0 ? '—' : `${Math.round(stats.shotsHit / stats.shotsFired * 100)}%`} />
           <StatRow label="Damage taken" value={stats.damageTaken} />
         </div>
+
+        {appliedUpgrades.length > 0 && (
+          <div className="mb-4 bg-gray-800/40 rounded-lg px-4 py-3">
+            <p className="text-gray-500 text-xs font-mono mb-2 uppercase tracking-widest">Upgrades</p>
+            <div className="flex flex-wrap gap-1">
+              {appliedUpgrades.map((upg, i) => (
+                <span key={i} className="flex items-center gap-1 px-2 py-0.5 rounded bg-teal-900/60 border border-teal-700/40 text-teal-300 text-xs font-mono">
+                  {upg.icon} {upg.label}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="mb-5 flex flex-col gap-1 bg-gray-800/40 rounded-lg px-4 py-3">
           {CONTROLS.map(c => (
@@ -79,12 +93,12 @@ function UpgradeScreen({ upgrades, onSelect, onRestart }: { upgrades: UpgradeOpt
         <p className="text-gray-400 text-sm font-mono">Choose one upgrade</p>
       </div>
 
-      <div className="flex gap-4">
+      <div className="flex flex-col sm:flex-row gap-4">
         {upgrades.map((upg, i) => (
           <button
             key={upg.type}
             onClick={() => onSelect(i)}
-            className="flex flex-col items-center gap-3 w-44 px-5 py-5 bg-gray-900 border border-gray-600 rounded-xl
+            className="flex flex-col items-center gap-3 w-64 sm:w-44 px-5 py-5 bg-gray-900 border border-gray-600 rounded-xl
                        hover:border-teal-400 hover:bg-gray-800 transition-all duration-150 active:scale-95 group"
           >
             <span className="text-4xl">{upg.icon}</span>
@@ -156,7 +170,7 @@ function EndScreen({ status, stats, onRestart }: { status: 'won' | 'lost'; stats
 
 export default function GameOverlay({
   status, stats, heroGun, heroHealth, heroMaxHealth,
-  pendingUpgrades, onRestart, onResume, onUpgradeSelect,
+  pendingUpgrades, appliedUpgrades, onRestart, onResume, onUpgradeSelect,
 }: GameOverlayProps) {
   if (status === 'playing') return null;
 
@@ -168,6 +182,7 @@ export default function GameOverlay({
     return (
       <PauseMenu
         stats={stats} heroGun={heroGun} heroHealth={heroHealth} heroMaxHealth={heroMaxHealth}
+        appliedUpgrades={appliedUpgrades}
         onResume={onResume} onRestart={onRestart}
       />
     );

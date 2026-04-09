@@ -78,6 +78,25 @@ export class Particle extends Rectangle {
     );
   }
 
+  static enemyDeath(x: number, y: number, color: string, size: number): Particle[] {
+    const out: Particle[] = [];
+    // Large slow chunks
+    for (let i = 0; i < 6; i++) {
+      const angle = (i / 6) * Math.PI * 2 + Math.random() * 0.5;
+      const speed = 1.5 + Math.random() * 3;
+      out.push(new Particle(x, y, 4 + Math.random() * 4, 4 + Math.random() * 4, color, 28 + Math.random() * 12, speed, { angle }));
+    }
+    // Small fast sparks in a lighter tint
+    for (let i = 0; i < 8; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 3 + Math.random() * 5;
+      out.push(new Particle(x, y, 2, 2, '#ffffff', 14 + Math.random() * 8, speed, { angle }));
+    }
+    // Size-scaled central flash — one big short-lived square
+    out.push(new Particle(x - size / 2, y - size / 2, size, size, color, 6, 0));
+    return out;
+  }
+
   static muzzleFlash(x: number, y: number, angle: number): Particle[] {
     const out: Particle[] = [];
     for (let i = 0; i < 3; i++) {

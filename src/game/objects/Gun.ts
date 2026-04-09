@@ -49,6 +49,12 @@ export class Gun {
     return this.cooldownTimer <= 0;
   }
 
+  /** 0 = just fired / cooling down, 1 = fully charged and ready */
+  get chargeFraction(): number {
+    const max = GUN_STATS[this.type].cooldown;
+    return max > 0 ? 1 - this.cooldownTimer / max : 1;
+  }
+
   tick() {
     if (this.cooldownTimer > 0) this.cooldownTimer--;
   }
@@ -64,6 +70,8 @@ export class Gun {
     spawnParticles: (p: Particle[]) => void,
     damageMultiplier = 1,
     cooldownMultiplier = 1,
+    pierce = 0,
+    extraShots = 0,
   ): Bullet[] {
     if (!this.canFire()) return [];
 
@@ -80,7 +88,7 @@ export class Gun {
       new Bullet(
         fromX, fromY, bw, bh,
         tx, ty, speed, stats.damage * damageMultiplier, color,
-        this.source, getStatics, getEnemyTargets, getPlayerTarget, spawnParticles,
+        this.source, getStatics, getEnemyTargets, getPlayerTarget, spawnParticles, pierce,
       );
 
     const playerColor = stats.color as string;
@@ -107,6 +115,19 @@ export class Gun {
       this.sprinklerAngle = (this.sprinklerAngle + 3) % 360;
     } else {
       bullets.push(make(targetX, targetY, baseColor));
+    }
+
+    // Multishot: fire extra bullets at small angles around the main shot
+    if (extraShots > 0 && this.source === 'player') {
+      const dx  = targetX - fromX;
+      const dy  = targetY - fromY;
+      const base = Math.atan2(dy, dx);
+      const range = 300;
+      for (let i = 1; i <= extraShots; i++) {
+        const spread = (i % 2 === 0 ? 1 : -1) * Math.ceil(i / 2) * 0.18;
+        const a = base + spread;
+        bullets.push(make(fromX + Math.cos(a) * range, fromY + Math.sin(a) * range, playerColor));
+      }
     }
 
     this.cooldownTimer = Math.round(GUN_STATS[this.type].cooldown * cooldownMultiplier);

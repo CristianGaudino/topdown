@@ -46,10 +46,10 @@ export interface EnemyContext {
 }
 
 export class Enemy extends Entity {
-  readonly isBoss:  boolean;
-  readonly gunType: GunType;
-  readonly profile: EnemyProfile;
-  private gun:      Gun;
+  readonly isBoss:   boolean;
+  readonly gunType:  GunType;
+  readonly profile:  EnemyProfile;
+  gun:               Gun;
   private touchCooldown = 0;
 
   // Velocity-based movement
@@ -478,6 +478,29 @@ export class Enemy extends Entity {
       ctx.globalAlpha = 0.5 + Math.sin(Date.now() * 0.006) * 0.5;
       ctx.strokeRect(this.x - 4, this.y - 4, this.width + 8, this.height + 8);
       ctx.restore();
+    }
+
+    // Sniper laser sight — shown while charging, brightens as shot approaches
+    if (this.gunType === 'sniper' && !this.isBoss) {
+      const charge = this.gun.chargeFraction;
+      if (charge > 0.15) {
+        const alpha  = (charge - 0.15) / 0.85 * 0.7;
+        const length = 320;
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(angle);
+        const grad = ctx.createLinearGradient(0, 0, length, 0);
+        grad.addColorStop(0,   `rgba(255,200,50,${(alpha * 0.9).toFixed(2)})`);
+        grad.addColorStop(0.6, `rgba(255,100,50,${(alpha * 0.5).toFixed(2)})`);
+        grad.addColorStop(1,   'rgba(255,100,50,0)');
+        ctx.strokeStyle = grad;
+        ctx.lineWidth   = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(hw + 14, 0);
+        ctx.lineTo(hw + 14 + length, 0);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
 
     ctx.save();

@@ -22,6 +22,9 @@ const DEFAULT_STATE: GameState = {
   currentRoomCol:    2,
   mapRooms:          [{ row: 2, col: 2, isCurrent: true, hasEnemies: false, role: 'start' as const }],
   dashCooldownFraction: 0,
+  shieldCharges:     0,
+  roomNotif:         null,
+  appliedUpgrades:   [],
   stats:             { kills: 0, damageTaken: 0, healthPickedUp: 0, gunsPickedUp: 0, shotsFired: 0, shotsHit: 0 },
   pendingUpgrades:   null,
   bossHealth:        null,
@@ -80,6 +83,7 @@ export default function GameCanvas() {
         heroHealth={gameState.heroHealth}
         heroMaxHealth={gameState.heroMaxHealth}
         pendingUpgrades={gameState.pendingUpgrades}
+        appliedUpgrades={gameState.appliedUpgrades}
         bossHealth={gameState.bossHealth}
         onRestart={handleRestart}
         onResume={handleResume}

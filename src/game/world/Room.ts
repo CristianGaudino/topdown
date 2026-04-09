@@ -220,7 +220,7 @@ export class Room {
 
     return specs
       .map(([x, y, kind]) => new Wall(x, y, kind, palette))
-      .filter(wall => !this.isOnDoorMat(wall));
+      .filter(wall => !wall.blocks.some(b => this.isOnDoorMat(b)));
   }
 
   // ── Initial pickups (start room only; loot rooms use upgrade overlay) ────────
@@ -302,8 +302,10 @@ export class Room {
     const idx = this.enemies.indexOf(enemy);
     if (idx !== -1) {
       this.enemies.splice(idx, 1);
+      const m = enemy.middle;
+      this.particles.push(...Particle.enemyDeath(m.x, m.y, enemy.profile.color, Math.max(enemy.width, enemy.height)));
       this.tryDropPickup(enemy);
-      this.onEnemyKilled?.(enemy.middle.x, enemy.middle.y, enemy.gunType, enemy.isBoss);
+      this.onEnemyKilled?.(m.x, m.y, enemy.gunType, enemy.isBoss);
       if (this.enemies.length === 0) this.openGates();
     }
   }

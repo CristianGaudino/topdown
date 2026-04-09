@@ -12,6 +12,7 @@ export class Bullet extends Rectangle {
   private vx = 0;
   private vy = 0;
   private lifetime: number;
+  private travelAngle = 0;
 
   private getStatics: () => Rect[];
   private getEnemyTargets: () => Array<{ rect: Rect; onHit: (dmg: number, x: number, y: number) => void }>;
@@ -43,6 +44,7 @@ export class Bullet extends Rectangle {
     if (dist > 0) {
       this.vx = (dx / dist) * speed;
       this.vy = (dy / dist) * speed;
+      this.travelAngle = Math.atan2(dy, dx);
     }
     // Max travel ~1400 px regardless of speed; ensures stray bullets don't accumulate
     this.lifetime = Math.ceil(1400 / Math.max(speed, 1));
@@ -85,5 +87,17 @@ export class Bullet extends Rectangle {
   private impact() {
     this.stopped = true;
     this.spawnParticles(Particle.burst(this.x, this.y, this.color));
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    if (this.stopped) return;
+    const cx = this.x + this.width  / 2;
+    const cy = this.y + this.height / 2;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(this.travelAngle);
+    ctx.fillStyle = this.color;
+    ctx.fillRect(-this.width / 2, -this.height / 2, this.width, this.height);
+    ctx.restore();
   }
 }

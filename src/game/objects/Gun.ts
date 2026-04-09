@@ -16,7 +16,7 @@ interface GunStats {
 }
 
 const GUN_STATS: Record<GunType, GunStats> = {
-  rifle:     { width: 6, height: 6, speed: 8,  enemySpeed: 4.5, damage: 8,  cooldown: 40, color: '#003580', enemyColor: '#ff5555' },
+  rifle:     { width: 6, height: 6, speed: 9,  enemySpeed: 4.5, damage: 10, cooldown: 28, color: '#003580', enemyColor: '#ff5555' },
   smg:       { width: 5, height: 5, speed: 8,  enemySpeed: 4.0, damage: 4,  cooldown: 15, color: '#27ae60', enemyColor: '#55ff99' },
   sniper:    { width: 8, height: 4, speed: 15, enemySpeed: 7.0, damage: 25, cooldown: 90, color: '#7f4f24', enemyColor: '#ffcc44' },
   shotgun:   { width: 6, height: 6, speed: 4,  enemySpeed: 2.5, damage: 15, cooldown: 45, color: '#c0392b', enemyColor: '#ff8855' },

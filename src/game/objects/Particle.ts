@@ -74,7 +74,7 @@ export class Particle extends Rectangle {
       'down', 'down-left', 'left', 'up-left',
     ];
     return directions.map(
-      dir => new Particle(x, y, 2, 3, 'yellow', 20, Math.random() * 10, dir),
+      dir => new Particle(x, y, 2, 3, color, 20, Math.random() * 10, dir),
     );
   }
 

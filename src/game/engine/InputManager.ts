@@ -7,6 +7,7 @@ export interface InputState {
   mouseX: number;
   mouseY: number;
   mouseDown: boolean;  // hold to shoot
+  speedFraction: number; // 1.0 for keyboard; joystick magnitude (0–1) for mobile
 }
 
 /** Virtual input injected by mobile controls; merged on top of keyboard/mouse state. */
@@ -18,7 +19,8 @@ export interface VirtualInput {
   mouseX: number | null; // null = don't override
   mouseY: number | null;
   mouseDown: boolean;
-  dash: boolean; // one-shot, consumed after read
+  dash: boolean;           // one-shot, consumed after read
+  speedFraction?: number;  // overrides keyboard default of 1.0 when set
 }
 
 export class InputManager {
@@ -109,15 +111,18 @@ export class InputManager {
 
   /** Returns a snapshot and clears one-shot flags (dash). */
   get(): InputState {
+    const usingKeyboard = this.state.up || this.state.down || this.state.left || this.state.right;
     const snap: InputState = {
-      up:        this.state.up        || this.virtual.up,
-      down:      this.state.down      || this.virtual.down,
-      left:      this.state.left      || this.virtual.left,
-      right:     this.state.right     || this.virtual.right,
-      mouseDown: this.state.mouseDown || this.virtual.mouseDown,
-      dash:      this.state.dash      || this.virtual.dash,
-      mouseX:    this.virtual.mouseX  ?? this.state.mouseX,
-      mouseY:    this.virtual.mouseY  ?? this.state.mouseY,
+      up:            this.state.up        || this.virtual.up,
+      down:          this.state.down      || this.virtual.down,
+      left:          this.state.left      || this.virtual.left,
+      right:         this.state.right     || this.virtual.right,
+      mouseDown:     this.state.mouseDown || this.virtual.mouseDown,
+      dash:          this.state.dash      || this.virtual.dash,
+      mouseX:        this.virtual.mouseX  ?? this.state.mouseX,
+      mouseY:        this.virtual.mouseY  ?? this.state.mouseY,
+      // Keyboard always full speed; mobile joystick sends its magnitude
+      speedFraction: usingKeyboard ? 1.0 : (this.virtual.speedFraction ?? 1.0),
     };
     // Consume one-shot flags
     this.state.dash   = false;

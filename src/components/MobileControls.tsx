@@ -59,11 +59,13 @@ export default function MobileControls({ heroX, heroY, visible, onVirtualInput, 
   // ── Left joystick (movement) ───────────────────────────────────────────────
 
   const pushMove = useCallback((dx: number, dy: number) => {
+    const mag = Math.sqrt(dx * dx + dy * dy); // 0..1 proportional to how far stick is pushed
     onVirtualInput({
-      up:    dy < -MOVE_DEAD,
-      down:  dy >  MOVE_DEAD,
-      left:  dx < -MOVE_DEAD,
-      right: dx >  MOVE_DEAD,
+      up:            dy < -MOVE_DEAD,
+      down:          dy >  MOVE_DEAD,
+      left:          dx < -MOVE_DEAD,
+      right:         dx >  MOVE_DEAD,
+      speedFraction: mag < MOVE_DEAD ? 0 : mag,
     });
   }, [onVirtualInput]);
 
@@ -91,7 +93,7 @@ export default function MobileControls({ heroX, heroY, visible, onVirtualInput, 
     leftActive.current = false;
     setBaseOpacity(leftBaseRef, false);
     setKnob(leftKnobRef, 0, 0);
-    onVirtualInput({ up: false, down: false, left: false, right: false });
+    onVirtualInput({ up: false, down: false, left: false, right: false, speedFraction: 0 });
   }, [onVirtualInput]);
 
   // ── Right joystick (aim + fire) ────────────────────────────────────────────

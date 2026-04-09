@@ -109,6 +109,7 @@ export class Hero extends Entity {
   update(input: {
     up: boolean; down: boolean; left: boolean; right: boolean;
     dash: boolean; mouseX: number; mouseY: number; mouseDown: boolean;
+    speedFraction: number;
   }) {
     this.gun.tick();
     if (this.invincibleTimer > 0) this.invincibleTimer--;
@@ -149,10 +150,17 @@ export class Hero extends Entity {
       if (!this.wouldCollide(this.dashVx, 0, statics)) this.x += this.dashVx;
       if (!this.wouldCollide(0, this.dashVy, statics)) this.y += this.dashVy;
     } else {
-      if (input.up    && !this.wouldCollide(0, -speed, statics)) this.y -= speed;
-      if (input.down  && !this.wouldCollide(0,  speed, statics)) this.y += speed;
-      if (input.left  && !this.wouldCollide(-speed, 0, statics)) this.x -= speed;
-      if (input.right && !this.wouldCollide( speed, 0, statics)) this.x += speed;
+      // Normalize diagonal movement so it's never faster than cardinal
+      let mx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+      let my = (input.down  ? 1 : 0) - (input.up   ? 1 : 0);
+      const mlen = Math.sqrt(mx * mx + my * my);
+      if (mlen > 0) {
+        mx /= mlen;
+        my /= mlen;
+        const s = speed * input.speedFraction;
+        if (!this.wouldCollide(mx * s, 0, statics)) this.x += mx * s;
+        if (!this.wouldCollide(0, my * s, statics)) this.y += my * s;
+      }
     }
 
     if (input.mouseDown) {

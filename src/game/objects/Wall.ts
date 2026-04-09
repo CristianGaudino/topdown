@@ -149,10 +149,10 @@ export class Wall {
     this.traceLShadow(ctx, ox, oy);
     ctx.stroke();
 
-    ctx.restore();
-
-    // 3. Deterministic marks (drawn after clip restore)
+    // 3. Deterministic marks — must stay inside save/restore so the clip applies
     this.drawMarks(ctx, ox, oy, HL, VL);
+
+    ctx.restore();
   }
 
   // Build the full outline path for each L variant

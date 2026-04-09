@@ -64,8 +64,9 @@ export class Enemy extends Entity {
   private prevStuckY  = 0;
 
   // Last known hero position (for draw rotation)
-  private lastHeroX = 0;
-  private lastHeroY = 0;
+  private lastHeroX   = 0;
+  private lastHeroY   = 0;
+  private facingAngle = 0;
 
   // ── Boss-specific state ────────────────────────────────────────────────────
   private bossFireTimer      = 90;
@@ -101,6 +102,14 @@ export class Enemy extends Entity {
 
     this.lastHeroX = heroX;
     this.lastHeroY = heroY;
+
+    // Smoothly rotate facing toward the hero
+    const targetAngle = Math.atan2(heroY - this.middle.y, heroX - this.middle.x);
+    let delta = targetAngle - this.facingAngle;
+    // Wrap delta to [-π, π]
+    while (delta >  Math.PI) delta -= Math.PI * 2;
+    while (delta < -Math.PI) delta += Math.PI * 2;
+    this.facingAngle += delta * this.profile.turnRate;
     this.gun.tick();
     if (this.touchCooldown > 0) this.touchCooldown--;
 
@@ -445,7 +454,7 @@ export class Enemy extends Entity {
   // ── Draw ────────────────────────────────────────────────────────────────────
 
   draw(ctx: CanvasRenderingContext2D) {
-    const angle = Math.atan2(this.lastHeroY - this.middle.y, this.lastHeroX - this.middle.x);
+    const angle = this.facingAngle;
     const cx = this.middle.x;
     const cy = this.middle.y;
     const hw = this.width  / 2;
